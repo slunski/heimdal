@@ -2825,6 +2825,26 @@ _krb5_enctype_requires_random_salt(krb5_context context,
     return et && (et->flags & F_SP800_108_HMAC_KDF);
 }
 
+/**
+ * Returns whether the encryption type is native AEAD type
+ *
+ * @param context Kerberos 5 context
+ * @param enctype encryption type to probe
+ *
+ * @return Returns true if is native AEAD enctype
+ *
+ * @ingroup krb5_crypto
+ */
+KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
+_krb5_enctype_is_aead(krb5_context context, krb5_enctype enctype)
+{
+    struct _krb5_encryption_type *et;
+
+    et = _krb5_find_enctype (enctype);
+
+    return et && (et->flags & F_AEAD);
+}
+
 static size_t
 wrapped_length (krb5_context context,
 		krb5_crypto  crypto,
