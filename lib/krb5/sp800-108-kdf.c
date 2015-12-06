@@ -146,19 +146,12 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
 	if (EVP_CipherInit_ex(&c, cipher, NULL, kdf_K1->data, NULL, 1) != 1)
 	    return KRB5_CRYPTO_INTERNAL;
 
-	/* not as elegantly abstracted as one might like */
-	switch (EVP_CIPHER_nid(cipher)) {
-	case NID_aes_128_gcm:
-	case NID_aes_192_gcm:
-	case NID_aes_256_gcm:
-	    EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_GCM_SET_IVLEN, sizeof(mac), NULL);
-            EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_GCM_SET_IV_FIXED, -1, mac);
-            EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_GCM_IV_GEN, sizeof(mac), mac);
-	    break;
-	default:
-	    break;
-	}
-
+	/*
+	 * AES/CCM with a zero nonce, but with the previous MAC fed back
+	 * for subsequent invocations.
+	 */
+	if (EVP_CipherUpdate(&c, NULL, &outlen, mac, sizeof(mac)) != 1)
+	    return KRB5_CRYPTO_INTERNAL;
 	_krb5_put_int(tmp, i, 4);
 	if (EVP_CipherUpdate(&c, NULL, &outlen, tmp, 4) != 1)
 	    return KRB5_CRYPTO_INTERNAL;
