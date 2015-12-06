@@ -65,7 +65,8 @@ typedef struct gsskrb5_ctx {
 	 ACCEPTOR_SUBKEY = 16,
 	 RETRIED = 32,
 	 CLOSE_CCACHE = 64,
-	 IS_CFX = 128
+	 IS_CFX = 128,
+	 AEAD = 256
   } more_flags;
   enum gss_ctx_id_t_state {
       /* initiator states */
@@ -87,6 +88,7 @@ typedef struct gsskrb5_ctx {
   krb5_keyblock *service_keyblock;
   krb5_data fwd_data;
   krb5_crypto crypto;
+  krb5_data cipher_state;
 } *gsskrb5_ctx;
 
 typedef struct {

@@ -139,12 +139,25 @@ _gsskrb5i_is_cfx(krb5_context context, gsskrb5_ctx ctx, int acceptor)
 	if ((acceptor && ctx->auth_context->local_subkey) ||
 	    (!acceptor && ctx->auth_context->remote_subkey))
 	    ctx->more_flags |= ACCEPTOR_SUBKEY;
+	if (_krb5_enctype_is_aead(context, key->keytype))
+	    ctx->more_flags |= AEAD;
 	break;
     }
     if (ctx->crypto)
         krb5_crypto_destroy(context, ctx->crypto);
     /* XXX We really shouldn't ignore this; will come back to this */
     (void) krb5_crypto_init(context, key, 0, &ctx->crypto);
+
+    if (ctx->more_flags & AEAD) {
+	size_t len;
+
+	/* Initialize random IV */
+	krb5_crypto_length(context, ctx->crypto,
+			   KRB5_CRYPTO_TYPE_HEADER, &len);
+	krb5_data_alloc(&ctx->cipher_state, len);
+	krb5_generate_random_block(ctx->cipher_state.data,
+				   ctx->cipher_state.length);
+    }
 }
 
 

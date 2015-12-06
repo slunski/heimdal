@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, PADL Software Pty Ltd.
+ * Copyright (c) 2003, 2015 PADL Software Pty Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -67,9 +67,15 @@ _gsskrb5cfx_wrap_length_cfx(krb5_context context,
 
     if (conf_req_flag) {
 	size_t padsize;
+	krb5_enctype enctype;
+
+	ret = krb5_crypto_getenctype(context, crypto, &enctype);
+	if (ret)
+	    return ret;
 
 	/* Header is concatenated with data before encryption */
-	input_length += sizeof(gss_cfx_wrap_token_desc);
+	if (!_krb5_enctype_is_aead(context, enctype))
+	    input_length += sizeof(gss_cfx_wrap_token_desc);
 
 	if (dce_style) {
 		ret = krb5_crypto_getblocksize(context, crypto, &padsize);
@@ -129,11 +135,13 @@ _gssapi_wrap_size_cfx(OM_uint32 *minor_status,
 	if (wrapped_size == 0)
 	    return 0;
 
-	/* inner header */
-	if (wrapped_size < 16)
-	    return 0;
+	if ((ctx->more_flags & AEAD) == 0) {
+	    /* inner header */
+	    if (wrapped_size < 16)
+		return 0;
 
-	wrapped_size -= 16;
+	    wrapped_size -= 16;
+	}
 
 	*max_input_size = wrapped_size;
     } else {
@@ -285,13 +293,14 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
     gss_iov_buffer_desc *header, *trailer, *padding;
     size_t gsshsize, k5hsize;
     size_t gsstsize, k5tsize;
-    size_t rrc = 0, ec = 0;
-    int i;
+    size_t rrc = 0, ec = 0, etsize;
+    int i, j;
     gss_cfx_wrap_token token;
     krb5_error_code ret;
     int32_t seq_number;
     unsigned usage;
     krb5_crypto_iov *data = NULL;
+    void *ivec = (ctx->more_flags & AEAD) ? ctx->cipher_state.data : NULL;
 
     header = _gk_find_buffer(iov, iov_count, GSS_IOV_BUFFER_TYPE_HEADER);
     if (header == NULL) {
@@ -363,8 +372,14 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    ec = k5psize;
 	}
 
+	/* non-AEAD modes include an encrypted copy of the GSS header */
+	if (conf_req_flag && (ctx->more_flags & AEAD))
+	    etsize = 0;
+	else
+	    etsize = sizeof(gss_cfx_wrap_token_desc);
+
 	gsshsize = sizeof(gss_cfx_wrap_token_desc) + k5hsize;
-	gsstsize = sizeof(gss_cfx_wrap_token_desc) + ec + k5tsize;
+	gsstsize = ec + k5tsize + etsize;
     } else {
 	if (IS_DCE_STYLE(ctx)) {
 	    *minor_status = EINVAL;
@@ -483,7 +498,8 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 				    ++seq_number);
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
 
-    data = calloc(iov_count + 3, sizeof(data[0]));
+    data = calloc(iov_count + 3 + ((ctx->more_flags & AEAD) ? 1 : 0),
+		  sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -507,11 +523,19 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 
 	i = 0;
 	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
-	data[i].data.data = ((uint8_t *)header->buffer.value) + header->buffer.length - k5hsize;
+	data[i].data.data = (uint8_t *)header->buffer.value + sizeof(gss_cfx_wrap_token_desc);
 	data[i].data.length = k5hsize;
+	i++;
 
-	for (i = 1; i < iov_count + 1; i++) {
-	    switch (GSS_IOV_BUFFER_TYPE(iov[i - 1].type)) {
+	if (ctx->flags & AEAD) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	    data[i].data.data = header->buffer.value;
+	    data[i].data.length = sizeof(gss_cfx_wrap_token_desc);
+	    i++;
+	}
+
+	for (j = 0; j < iov_count; i++, j++) {
+	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
 	    case GSS_IOV_BUFFER_TYPE_DATA:
 		data[i].flags = KRB5_CRYPTO_TYPE_DATA;
 		break;
@@ -522,8 +546,8 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 		data[i].flags = KRB5_CRYPTO_TYPE_EMPTY;
 		break;
 	    }
-	    data[i].data.length = iov[i - 1].buffer.length;
-	    data[i].data.data = iov[i - 1].buffer.value;
+	    data[i].data.length = iov[j].buffer.length;
+	    data[i].data.data = iov[j].buffer.value;
 	}
 
 	/*
@@ -540,19 +564,18 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    data[i].data.data = trailer->buffer.value;
 	else
 	    data[i].data.data = ((uint8_t *)header->buffer.value) + sizeof(*token);
-
-	data[i].data.length = ec + sizeof(*token);
+	data[i].data.length = ec + etsize;
 	memset(data[i].data.data, 0xFF, ec);
-	memcpy(((uint8_t *)data[i].data.data) + ec, token, sizeof(*token));
+	memcpy(((uint8_t *)data[i].data.data) + ec, token, etsize);
 	i++;
 
 	/* Kerberos trailer comes after the gss trailer */
 	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
-	data[i].data.data = ((uint8_t *)data[i-1].data.data) + ec + sizeof(*token);
+	data[i].data.data = ((uint8_t *)data[i-1].data.data) + ec + etsize;
 	data[i].data.length = k5tsize;
 	i++;
 
-	ret = krb5_encrypt_iov_ivec(context, ctx->crypto, usage, data, i, NULL);
+	ret = krb5_encrypt_iov_ivec(context, ctx->crypto, usage, data, i, ivec);
 	if (ret != 0) {
 	    *minor_status = ret;
 	    major_status = GSS_S_FAILURE;
@@ -726,6 +749,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
     uint16_t ec, rrc;
     krb5_crypto_iov *data = NULL;
     int i, j;
+    void *ivec = (ctx->more_flags & AEAD) ? ctx->cipher_state.data : NULL;
 
     *minor_status = 0;
 
@@ -812,7 +836,8 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	usage = KRB5_KU_USAGE_INITIATOR_SEAL;
     }
 
-    data = calloc(iov_count + 3, sizeof(data[0]));
+    data = calloc(iov_count + 3 + ((ctx->more_flags & AEAD) ? 1 : 0),
+		  sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -821,6 +846,9 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 
     if (token_flags & CFXSealed) {
 	size_t k5tsize, k5hsize;
+	size_t etsize; /* size of encrypted token, unnecessary for AEAD mdoes */
+
+	etsize = (ctx->more_flags & AEAD) ? 0 : sizeof(*token);
 
 	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
 	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
@@ -829,7 +857,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	/* Check RRC */
 
 	if (trailer == NULL) {
-	    size_t gsstsize = k5tsize + sizeof(*token);
+	    size_t gsstsize = k5tsize + etsize;
 	    size_t gsshsize = k5hsize + sizeof(*token);
 
 	    if (rrc != gsstsize) {
@@ -846,7 +874,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 		major_status = GSS_S_DEFECTIVE_TOKEN;
 		goto failure;
 	    }
-	} else if (trailer->buffer.length != sizeof(*token) + k5tsize) {
+	} else if (trailer->buffer.length != etsize + k5tsize) {
 	    major_status = GSS_S_DEFECTIVE_TOKEN;
 	    goto failure;
 	} else if (header->buffer.length != sizeof(*token) + k5hsize) {
@@ -865,6 +893,14 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	data[i].data.length = k5hsize;
 	i++;
 
+	if (ctx->more_flags & AEAD) {
+	    /* Integrity protect the GSS header */
+	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	    data[i].data.data = header->buffer.value;
+	    data[i].data.length = sizeof(*token);
+	    i++;
+	}
+
 	for (j = 0; j < iov_count; i++, j++) {
 	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
 	    case GSS_IOV_BUFFER_TYPE_DATA:
@@ -882,40 +918,41 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	}
 
 	/* encrypted CFX header in trailer (or after the header if in
-	   DCE mode). Copy in header into E"header"
+	   DCE mode). Copy in header into E"header" (for non-AEAD modes).
 	*/
 	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
 	if (trailer) {
 	    data[i].data.data = trailer->buffer.value;
 	} else {
 	    data[i].data.data = ((uint8_t *)header->buffer.value) +
-		header->buffer.length - k5hsize - k5tsize - ec- sizeof(*token);
+		header->buffer.length - k5hsize - k5tsize - (ec + etsize);
 	}
-
-	data[i].data.length = ec + sizeof(*token);
+	data[i].data.length = ec + etsize;
 	ttoken = (gss_cfx_wrap_token)(((uint8_t *)data[i].data.data) + ec);
 	i++;
 
 	/* Kerberos trailer comes after the gss trailer */
 	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
-	data[i].data.data = ((uint8_t *)data[i-1].data.data) + ec + sizeof(*token);
+	data[i].data.data = ((uint8_t *)data[i-1].data.data) + ec + etsize;
 	data[i].data.length = k5tsize;
 	i++;
 
-	ret = krb5_decrypt_iov_ivec(context, ctx->crypto, usage, data, i, NULL);
+	ret = krb5_decrypt_iov_ivec(context, ctx->crypto, usage, data, i, ivec);
 	if (ret != 0) {
 	    *minor_status = ret;
 	    major_status = GSS_S_FAILURE;
 	    goto failure;
 	}
 
-	ttoken->RRC[0] = token->RRC[0];
-	ttoken->RRC[1] = token->RRC[1];
+	if ((ctx->more_flags & AEAD) == 0) {
+	    ttoken->RRC[0] = token->RRC[0];
+	    ttoken->RRC[1] = token->RRC[1];
 
-	/* Check the integrity of the header */
-	if (ct_memcmp(ttoken, token, sizeof(*token)) != 0) {
-	    major_status = GSS_S_BAD_MIC;
-	    goto failure;
+	    /* Check the integrity of the header */
+	    if (ct_memcmp(ttoken, token, sizeof(*token)) != 0) {
+		major_status = GSS_S_BAD_MIC;
+		goto failure;
+	    }
 	}
     } else {
 	size_t gsstsize = ec;
@@ -1118,7 +1155,9 @@ _gssapi_wrap_iov_length_cfx(OM_uint32 *minor_status,
 	}
 
 	gsshsize = sizeof(gss_cfx_wrap_token_desc) + k5hsize;
-	gsstsize = sizeof(gss_cfx_wrap_token_desc) + ec + k5tsize;
+	gsstsize = ec + k5tsize;
+	if ((ctx->flags & AEAD) == 0)
+	    gsstsize += sizeof(gss_cfx_wrap_token_desc);
     } else {
 	*minor_status = krb5_crypto_length(context, ctx->crypto,
 					   KRB5_CRYPTO_TYPE_CHECKSUM,
@@ -1164,11 +1203,11 @@ OM_uint32 _gssapi_wrap_cfx(OM_uint32 *minor_status,
     gss_cfx_wrap_token token;
     krb5_error_code ret;
     unsigned usage;
-    krb5_data cipher;
     size_t wrapped_len, cksumsize;
     uint16_t padlength, rrc = 0;
     int32_t seq_number;
     u_char *p;
+    void *ivec = (ctx->more_flags & AEAD) ? ctx->cipher_state.data : NULL;
 
     ret = _gsskrb5cfx_wrap_length_cfx(context,
 				      ctx->crypto, conf_req_flag,
@@ -1262,6 +1301,9 @@ OM_uint32 _gssapi_wrap_cfx(OM_uint32 *minor_status,
     }
 
     if (conf_req_flag) {
+	krb5_crypto_iov data[5];
+	int i = 0;
+
 	/*
 	 * Any necessary padding is added here to ensure that the
 	 * encrypted token header is always at the end of the
@@ -1271,22 +1313,60 @@ OM_uint32 _gssapi_wrap_cfx(OM_uint32 *minor_status,
 	 * bytes are initialized.
 	 */
 	p += sizeof(*token);
-	memcpy(p, input_message_buffer->value, input_message_buffer->length);
-	memset(p + input_message_buffer->length, 0xFF, padlength);
-	memcpy(p + input_message_buffer->length + padlength,
-	       token, sizeof(*token));
 
-	ret = krb5_encrypt(context, ctx->crypto,
-			   usage, p,
-			   input_message_buffer->length + padlength +
-				sizeof(*token),
-			   &cipher);
+	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
+	data[i].data.data = p;
+	krb5_crypto_length(context, ctx->crypto,
+			   data[i].flags, &data[i].data.length);
+	p += data[i].data.length;
+	i++;
+
+	if (ctx->more_flags & AEAD) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	    data[i].data.data = token;
+	    data[i].data.length = sizeof(*token);
+	    i++;
+	}
+
+	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	data[i].data.data = p;
+	data[i].data.length = input_message_buffer->length;
+	memcpy(p, input_message_buffer->value, input_message_buffer->length);
+	p += data[i].data.length;
+	i++;
+
+	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	data[i].data.data = p + input_message_buffer->length;
+	data[i].data.length = padlength;
+	memset(p, 0xFF, padlength);
+	p += data[i].data.length;
+	i++;
+
+	if ((ctx->more_flags & AEAD) == 0) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	    data[i].data.data = p;
+	    data[i].data.length = sizeof(*token);
+	    memcpy(p, token, sizeof(*token));
+	    p += data[i].data.length;
+	    i++;
+	}
+
+	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
+	data[i].data.data = p;
+	krb5_crypto_length(context, ctx->crypto,
+			   data[i].flags, &data[i].data.length);
+	p += data[i].data.length;
+	i++;
+
+	heim_assert(p - (u_char *)output_message_buffer->value == wrapped_len,
+		    "Invalid length calculation in _gssapi_wrap_cfx");
+
+	ret = krb5_encrypt_iov_ivec(context, ctx->crypto, usage, data, i, ivec);
 	if (ret != 0) {
 	    *minor_status = ret;
 	    _gsskrb5_release_buffer(minor_status, output_message_buffer);
 	    return GSS_S_FAILURE;
 	}
-	assert(sizeof(*token) + cipher.length == wrapped_len);
 	token->RRC[0] = (rrc >> 8) & 0xFF;
 	token->RRC[1] = (rrc >> 0) & 0xFF;
 
@@ -1294,18 +1374,17 @@ OM_uint32 _gssapi_wrap_cfx(OM_uint32 *minor_status,
 	 * this is really ugly, but needed against windows
 	 * for DCERPC, as windows rotates by EC+RRC.
 	 */
+	p = (u_char *)output_message_buffer->value + sizeof(*token);
 	if (IS_DCE_STYLE(ctx)) {
-		ret = rrc_rotate(cipher.data, cipher.length, rrc+padlength, FALSE);
+	    ret = rrc_rotate(p, wrapped_len - sizeof(*token), rrc+padlength, FALSE);
 	} else {
-		ret = rrc_rotate(cipher.data, cipher.length, rrc, FALSE);
+	    ret = rrc_rotate(p, wrapped_len - sizeof(*token), rrc, FALSE);
 	}
 	if (ret != 0) {
 	    *minor_status = ret;
 	    _gsskrb5_release_buffer(minor_status, output_message_buffer);
 	    return GSS_S_FAILURE;
 	}
-	memcpy(p, cipher.data, cipher.length);
-	krb5_data_free(&cipher);
     } else {
 	char *buf;
 	Checksum cksum;
@@ -1375,11 +1454,11 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
     u_char token_flags;
     krb5_error_code ret;
     unsigned usage;
-    krb5_data data;
     uint16_t ec, rrc;
     OM_uint32 seq_number_lo, seq_number_hi;
     size_t len;
     u_char *p;
+    void *ivec = (ctx->more_flags & AEAD) ? ctx->cipher_state.data : NULL;
 
     *minor_status = 0;
 
@@ -1459,6 +1538,25 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
     len -= (p - (u_char *)input_message_buffer->value);
 
     if (token_flags & CFXSealed) {
+	gss_cfx_wrap_token_desc etoken;
+	krb5_crypto_iov data[6];
+	size_t i = 0, k5hsize = 0, k5tsize = 0, etsize;
+
+	memcpy(&etoken, token, sizeof(etoken));
+	etoken.RRC[0] = etoken.RRC[1] = 0;
+
+	etsize = !(ctx->more_flags & AEAD) ? sizeof(*token) : 0;
+
+	/* XXX check return value */
+	krb5_crypto_length(context, ctx->crypto,
+			   KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
+	krb5_crypto_length(context, ctx->crypto,
+			   KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
+	if (len < k5hsize + ec + etsize + k5tsize) {
+	    *minor_status = KRB5_BAD_MSIZE;
+	    return GSS_S_DEFECTIVE_TOKEN;
+	}
+
 	/*
 	 * this is really ugly, but needed against windows
 	 * for DCERPC, as windows rotates by EC+RRC.
@@ -1472,33 +1570,76 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
 	    return GSS_S_FAILURE;
 	}
 
-	ret = krb5_decrypt(context, ctx->crypto, usage,
-	    p, len, &data);
+	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
+	data[i].data.data = input_message_buffer->value;
+	data[i].data.length = k5hsize;
+	p += data[i].data.length;
+	i++;
+
+	if (ctx->more_flags & AEAD) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	    data[i].data.data = &etoken;
+	    data[i].data.length = sizeof(etoken);
+	    i++;
+	}
+
+	output_message_buffer->value = malloc(len - (k5hsize + k5tsize));
+	if (output_message_buffer->value == NULL) {
+	    *minor_status = ENOMEM;
+	    return GSS_S_FAILURE;
+	}
+
+	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	data[i].data.data = output_message_buffer->value;
+	data[i].data.length = len - (k5hsize + ec + etsize + k5tsize);
+	memcpy(data[i].data.data, p, data[i].data.length);
+	p += data[i].data.length;
+	i++;
+
+	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	data[i].data.data = (u_char *)data[i - 1].data.data + data[i - 1].data.length;
+	data[i].data.length = ec;
+	memcpy(data[i].data.data, p, data[i].data.length);
+	p += data[i].data.length;
+	i++;
+
+	if ((ctx->more_flags & AEAD) == 0) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	    data[i].data.data = (u_char *)data[i - 1].data.data + data[i - 1].data.length;
+	    data[i].data.length = sizeof(etoken);
+	    memcpy(data[i].data.data, &etoken, data[i].data.length);
+	    p += data[i].data.length;
+	    i++;
+	}
+
+	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
+	data[i].data.data = p;
+	data[i].data.length = k5tsize;
+	p += data[i].data.length;
+	i++;
+
+	heim_assert(p - (u_char *)input_message_buffer->value == input_message_buffer->length,
+		    "Invalid length calculation in _gssapi_unwrap_cfx");
+
+	ret = krb5_decrypt_iov_ivec(context, ctx->crypto, usage, data, i, ivec);
 	if (ret != 0) {
 	    *minor_status = ret;
 	    return GSS_S_BAD_MIC;
 	}
 
-	/* Check that there is room for the pad and token header */
-	if (data.length < ec + sizeof(*token)) {
-	    krb5_data_free(&data);
-	    return GSS_S_DEFECTIVE_TOKEN;
+	if ((ctx->more_flags & AEAD) == 0) {
+	    /* RRC is unprotected; don't modify input buffer */
+	    p = data[i - 2].data.data;
+
+	    ((gss_cfx_wrap_token)p)->RRC[0] = token->RRC[0];
+	    ((gss_cfx_wrap_token)p)->RRC[1] = token->RRC[1];
+
+	    /* Check the integrity of the header */
+	    if (ct_memcmp(p, token, sizeof(*token)) != 0) {
+		gss_release_buffer(minor_status, output_message_buffer);
+		return GSS_S_BAD_MIC;
+	    }
 	}
-	p = data.data;
-	p += data.length - sizeof(*token);
-
-	/* RRC is unprotected; don't modify input buffer */
-	((gss_cfx_wrap_token)p)->RRC[0] = token->RRC[0];
-	((gss_cfx_wrap_token)p)->RRC[1] = token->RRC[1];
-
-	/* Check the integrity of the header */
-	if (ct_memcmp(p, token, sizeof(*token)) != 0) {
-	    krb5_data_free(&data);
-	    return GSS_S_BAD_MIC;
-	}
-
-	output_message_buffer->value = data.data;
-	output_message_buffer->length = data.length - ec - sizeof(*token);
     } else {
 	Checksum cksum;
 
