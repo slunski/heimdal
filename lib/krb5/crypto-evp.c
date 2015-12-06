@@ -269,6 +269,9 @@ _krb5_evp_cipher_aead(krb5_context context,
 	    memcpy(hiv->data.data, ivec, hiv->data.length);
 	else
 	    krb5_generate_random_block(hiv->data.data, hiv->data.length);
+    } else if (ivec) {
+	if (ct_memcmp(ivec, hiv->data.data, hiv->data.length) != 0)
+	    return KRB5KRB_AP_ERR_BAD_INTEGRITY;
     }
 
     /* padding */
