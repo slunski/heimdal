@@ -69,7 +69,7 @@ struct _krb5_checksum_type _krb5_checksum_gmac_128_aes128 = {
     CKSUMTYPE_GMAC_128_AES128,
     "gmac-128-aes128",
     128,
-    40, /* checksum is 40 bytes because it has 24 byte IV */
+    28, /* checksum is 28 bytes because it has 12 byte nonce */
     F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
     _krb5_create_checksum_aead,
     _krb5_verify_checksum_aead
@@ -79,7 +79,7 @@ struct _krb5_checksum_type _krb5_checksum_gmac_128_aes256 = {
     CKSUMTYPE_GMAC_128_AES256,
     "gmac-128-aes256",
     128,
-    40, /* checksum is 40 bytes because it has 24 byte IV */
+    28, /* checksum is 28 bytes because it has 12 byte nonce */
     F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
     _krb5_create_checksum_aead,
     _krb5_verify_checksum_aead
@@ -124,7 +124,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128 = {
     "aes128-gcm-128",
     16,
     1,
-    24,
+    12,
     &keytype_aes128_gcm,
     NULL, /* should never be called */
     &_krb5_checksum_gmac_128_aes128,
@@ -140,7 +140,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
     "aes256-gcm-128",
     16,
     1,
-    24,
+    12,
     &keytype_aes256_gcm,
     NULL, /* should never be called */
     &_krb5_checksum_gmac_128_aes256,
