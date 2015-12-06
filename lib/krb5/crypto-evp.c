@@ -315,9 +315,6 @@ _krb5_evp_cipher_aead(krb5_context context,
 	    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
     }
 
-    if (EVP_CipherFinal(c, NULL, &outlen) != 1)
-	return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
-
     ret = (*et->encrypt)(context, dkey,
 			 encryptp ? tiv->data.data : NULL,
 			 encryptp ? tiv->data.length : 0,
@@ -328,32 +325,56 @@ _krb5_evp_cipher_aead(krb5_context context,
     return 0;
 }
 
-krb5_error_code
-_krb5_aead_checksum(krb5_context context,
-		    struct _krb5_key_data *key,
-		    const void *data,
-		    size_t len,
-		    unsigned usage,
-		    Checksum *result)
+static krb5_error_code
+checksum_aead(krb5_context context,
+	      struct _krb5_key_data *key,
+	      const void *data,
+	      size_t len,
+	      unsigned usage,
+	      Checksum *result,
+	      int createp)
 {
     struct _krb5_encryption_type *et =_krb5_find_enctype(key->key->keytype);
     krb5_crypto_iov iov[3];
+
+    if (result->checksum.length != et->confoundersize + et->blocksize)
+	return KRB5_BAD_MSIZE;
 
     iov[0].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
     iov[0].data.data = (void *)data;
     iov[0].data.length = len;
 
-    if (result->checksum.length != et->confoundersize + et->blocksize)
-	return KRB5_BAD_MSIZE;
-
-    /* Confounder is necessary for GMAC checksum */
+    /* Confounder is necessary for CMAC/GMAC checksum */
     iov[1].flags = KRB5_CRYPTO_TYPE_HEADER;
-    iov[1].data = result->checksum;
+    iov[1].data.data = result->checksum.data;
+    iov[1].data.length = et->confoundersize;
 
     iov[2].flags = KRB5_CRYPTO_TYPE_TRAILER;
     iov[2].data.data = (unsigned char *)result->checksum.data +
-		       et->confoundersize;
-    iov[2].data.length = result->checksum.length - et->confoundersize;
+		       iov[1].data.length;
+    iov[2].data.length = et->blocksize;
 
-    return _krb5_evp_cipher_aead(context, key, iov, 3, NULL, 1);
+    return _krb5_evp_cipher_aead(context, key, iov, 3, NULL, createp);
+}
+
+krb5_error_code
+_krb5_create_checksum_aead(krb5_context context,
+			   struct _krb5_key_data *key,
+			   const void *data,
+			   size_t len,
+			   unsigned usage,
+			   Checksum *result)
+{
+    return checksum_aead(context, key, data, len, usage, result, 1);
+}
+
+krb5_error_code
+_krb5_verify_checksum_aead(krb5_context context,
+			   struct _krb5_key_data *key,
+			   const void *data,
+			   size_t len,
+			   unsigned usage,
+			   Checksum *result)
+{
+    return checksum_aead(context, key, data, len, usage, result, 0);
 }

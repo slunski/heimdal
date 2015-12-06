@@ -122,8 +122,8 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
     unsigned char *p = kdf_K0->data;
     size_t i, n, left = kdf_K0->length;
     unsigned char mac[16];
-    unsigned int h = sizeof(mac) * 8;
-    const size_t L = kdf_K0->length * 8;
+    unsigned int h = sizeof(mac);
+    const size_t L = kdf_K0->length;
     EVP_CIPHER_CTX c;
     int outlen;
 
@@ -135,8 +135,6 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
     n = L / h;
     if (n == 0)
 	n = 1;
-
-    heim_assert(kdf_K0->length <= h, "Invalid KDF output length");
 
     /*
      * Chose feedback mode as it was used in draft-kanno-krbwg-camellia-ccm-03
@@ -175,7 +173,7 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
 				 kdf_context->data, kdf_context->length) != 1)
 		return KRB5_CRYPTO_INTERNAL;
 	}
-	_krb5_put_int(tmp, L, 4);
+	_krb5_put_int(tmp, L * 8, 4);
 	if (EVP_CipherUpdate(&c, NULL, &outlen, tmp, 4) != 1)
 	    return KRB5_CRYPTO_INTERNAL;
 	if (EVP_CipherFinal(&c, NULL, &outlen) != 1)
