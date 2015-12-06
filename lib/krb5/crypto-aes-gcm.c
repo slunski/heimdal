@@ -45,7 +45,7 @@ static struct _krb5_key_type keytype_aes128_gcm = {
     sizeof(struct _krb5_evp_schedule),
     NULL,
     _krb5_evp_schedule,
-    _krb5_AES_SHA2_salt, /* should never be called */
+    NULL,
     NULL,
     _krb5_evp_cleanup,
     EVP_aes_128_gcm
@@ -59,7 +59,7 @@ static struct _krb5_key_type keytype_aes256_gcm = {
     sizeof(struct _krb5_evp_schedule),
     NULL,
     _krb5_evp_schedule,
-    _krb5_AES_SHA2_salt, /* should never be called */
+    NULL,
     NULL,
     _krb5_evp_cleanup,
     EVP_aes_256_gcm
