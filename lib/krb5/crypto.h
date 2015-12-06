@@ -63,10 +63,12 @@ struct krb5_crypto_data {
 #define F_RFC3961_ENC		0x0100	/* RFC3961 simplified profile */
 #define F_SPECIAL		0x0200	/* backwards */
 #define F_ENC_THEN_CKSUM	0x0400  /* checksum is over encrypted data */
+#define F_AEAD			0x0800	/* AEAD-only enctype */
 #define F_CRYPTO_MASK		0x0F00
 
 #define F_RFC3961_KDF		0x1000	/* RFC3961 KDF */
 #define F_SP800_108_HMAC_KDF	0x2000	/* SP800-108 HMAC KDF */
+#define F_SP800_108_CMAC_KDF	0x2000	/* SP800-108 CMAC KDF */
 #define F_KDF_MASK		0xF000
 
 struct salt_type {
@@ -148,6 +150,8 @@ extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes128;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes256;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha256_128_aes128;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha384_192_aes256;
+extern struct _krb5_checksum_type _krb5_checksum_gmac_128_aes128;
+extern struct _krb5_checksum_type _krb5_checksum_gmac_128_aes256;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_md5;
 extern struct _krb5_checksum_type _krb5_checksum_sha1;
 extern struct _krb5_checksum_type _krb5_checksum_sha2;
@@ -170,6 +174,8 @@ extern struct _krb5_encryption_type _krb5_enctype_aes256_cts_hmac_sha1;
 extern struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha1;
 extern struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha256_128;
 extern struct _krb5_encryption_type _krb5_enctype_aes256_cts_hmac_sha384_192;
+extern struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128;
+extern struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128;
 extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_sha1;
 extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_md5;
 extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_none;

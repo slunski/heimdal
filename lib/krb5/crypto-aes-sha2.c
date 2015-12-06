@@ -49,6 +49,11 @@ _krb5_aes_sha2_md_for_enctype(krb5_context context,
     case ETYPE_AES256_CTS_HMAC_SHA384_192:
 	*md = EVP_sha384();
 	break;
+    case ETYPE_AES128_GCM_128:
+    case ETYPE_AES256_GCM_128:
+	/* For string2key only */
+	*md = EVP_sha512();
+	break;
     default:
 	return KRB5_PROG_ETYPE_NOSUPP;
 	break;

@@ -133,6 +133,7 @@ dist_libkrb5_la_SOURCES =			\
 	creds.c					\
 	crypto.c				\
 	crypto.h				\
+	crypto-aes-gcm.c			\
 	crypto-aes-sha1.c			\
 	crypto-aes-sha2.c			\
 	crypto-algs.c				\
@@ -276,6 +277,7 @@ librfc3961_la_SOURCES =				\
 	crc.c					\
 	crypto.c				\
 	crypto.h				\
+	crypto-aes-gcm.c			\
 	crypto-aes-sha1.c			\
 	crypto-aes-sha2.c			\
 	crypto-algs.c				\

@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2015 PADL Software Pty Ltd. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -177,4 +179,181 @@ _krb5_evp_encrypt_cts(krb5_context context,
 	    memcpy(ivec, tmp, blocksize);
     }
     return 0;
+}
+
+/*
+ * This is overloaded to abstract away GCM/CCM differences and does not
+ * actually encrypt anything, it just sets IV parameters and gets/sets
+ * the tag.
+ */
+krb5_error_code
+_krb5_evp_encrypt_gcm(krb5_context context,
+		      struct _krb5_key_data *key,
+		      void *data,
+		      size_t len,
+		      krb5_boolean encryptp,
+		      int usage,
+		      void *ivec)
+{
+    struct _krb5_evp_schedule *ctx = key->schedule->data;
+    struct _krb5_encryption_type *et = _krb5_find_enctype(key->key->keytype);
+    EVP_CIPHER_CTX *c;
+    krb5_boolean preludep;
+
+    c = encryptp ? &ctx->ectx : &ctx->dctx;
+    preludep = !!data ^ encryptp; /* is being called before encrypt/decrypt */
+
+    if (preludep) {
+	heim_assert(ivec != NULL, "_krb5_evp_encrypt_gcm prelude requires ivec");
+
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, et->confoundersize, NULL);
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_FIXED, -1, ivec);
+	if (encryptp) {
+	    /* Copy in IV from caller (nonce or chained cipherstate) */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, et->confoundersize, ivec);
+	} else {
+	    /* Copy in IV from caller without incrementing counter */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_INV, et->confoundersize, ivec);
+	    /* Copy in tag for verification */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_TAG, len, data);
+	}
+    } else {
+	/* Copy out ivec to caller, if cipherstate chaining required */
+	if (ivec)
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, et->confoundersize, ivec);
+
+	/* Copy out tag to caller */
+	if (encryptp)
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_GET_TAG, len, data);
+    }
+
+    return 0;
+}
+
+/* XXX copy and paste */
+static krb5_crypto_iov *
+iov_find(krb5_crypto_iov *data, size_t num_data, unsigned type)
+{
+    size_t i;
+    for (i = 0; i < num_data; i++)
+	if (data[i].flags == type)
+	    return &data[i];
+    return NULL;
+}
+
+krb5_error_code
+_krb5_evp_cipher_aead(krb5_context context,
+		      struct _krb5_key_data *dkey,
+		      krb5_crypto_iov *data,
+		      int num_data,
+		      void *ivec,
+		      int encryptp)
+{
+    const struct _krb5_encryption_type *et = _krb5_find_enctype(dkey->key->keytype);
+    size_t headersz, trailersz;
+    krb5_error_code ret;
+    krb5_crypto_iov *tiv, *piv, *hiv;
+    struct _krb5_evp_schedule *ctx;
+    EVP_CIPHER_CTX *c;
+    int i, outlen;
+
+    headersz = et->confoundersize;
+    trailersz = et->blocksize;
+
+    /* header */
+    hiv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_HEADER);
+    if (hiv == NULL || hiv->data.length != headersz)
+	return KRB5_BAD_MSIZE;
+    if (encryptp) {
+	if (ivec)
+	    memcpy(hiv->data.data, ivec, hiv->data.length);
+	else
+	    krb5_generate_random_block(hiv->data.data, hiv->data.length);
+    }
+
+    /* padding */
+    piv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_PADDING);
+    if (piv != NULL)
+	piv->data.length = 0; /* AEAD modes function as stream ciphers */
+
+    /* trailer */
+    tiv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_TRAILER);
+    if (tiv == NULL || tiv->data.length != trailersz)
+	return KRB5_BAD_MSIZE;
+
+    ctx = dkey->schedule->data;
+    c = encryptp ? &ctx->ectx : &ctx->dctx;
+
+    /* This API is overloaded just to abstract away GCM/CCM differences */
+    ret = (*et->encrypt)(context, dkey,
+			 encryptp ? NULL : tiv->data.data,
+			 encryptp ? 0 : tiv->data.length,
+			 encryptp, 0, hiv->data.data);
+    if (ret)
+	return ret;
+
+    /* Spec/OpenSSL insist associated data comes before plaintext */
+    for (i = 0; i < num_data; i++) {
+	outlen = data[i].data.length;
+
+	if (data[i].flags != KRB5_CRYPTO_TYPE_SIGN_ONLY)
+	    continue;
+
+	if (EVP_CipherUpdate(c, NULL, &outlen,
+			     data[i].data.data, data[i].data.length) != 1)
+	    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+    }
+
+    for (i = 0; i < num_data; i++) {
+	outlen = data[i].data.length;
+
+	if (data[i].flags != KRB5_CRYPTO_TYPE_DATA)
+	    continue;
+
+	if (EVP_CipherUpdate(c, data[i].data.data, &outlen,
+			     data[i].data.data, data[i].data.length) != 1)
+	    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+    }
+
+    if (EVP_CipherFinal(c, NULL, &outlen) != 1)
+	return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+
+    ret = (*et->encrypt)(context, dkey,
+			 encryptp ? tiv->data.data : NULL,
+			 encryptp ? tiv->data.length : 0,
+			 encryptp, 0, ivec);
+    if (ret)
+	return ret;
+
+    return 0;
+}
+
+krb5_error_code
+_krb5_aead_checksum(krb5_context context,
+		    struct _krb5_key_data *key,
+		    const void *data,
+		    size_t len,
+		    unsigned usage,
+		    Checksum *result)
+{
+    struct _krb5_encryption_type *et =_krb5_find_enctype(key->key->keytype);
+    krb5_crypto_iov iov[3];
+
+    iov[0].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+    iov[0].data.data = (void *)data;
+    iov[0].data.length = len;
+
+    if (result->checksum.length != et->confoundersize + et->blocksize)
+	return KRB5_BAD_MSIZE;
+
+    /* Confounder is necessary for GMAC checksum */
+    iov[1].flags = KRB5_CRYPTO_TYPE_HEADER;
+    iov[1].data = result->checksum;
+
+    iov[2].flags = KRB5_CRYPTO_TYPE_TRAILER;
+    iov[2].data.data = (unsigned char *)result->checksum.data +
+		       et->confoundersize;
+    iov[2].data.length = result->checksum.length - et->confoundersize;
+
+    return _krb5_evp_cipher_aead(context, key, iov, 3, NULL, 1);
 }

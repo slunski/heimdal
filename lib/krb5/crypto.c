@@ -1474,6 +1474,29 @@ iov_pad_validate(const struct _krb5_encryption_type *et,
     return 0;
 }
 
+static krb5_error_code
+iov_ivec_aead(krb5_context context,
+	      krb5_crypto crypto,
+	      unsigned usage,
+	      krb5_crypto_iov *data,
+	      int num_data,
+	      void *ivec,
+	      int encp)
+{
+    krb5_error_code ret;
+    struct _krb5_key_data *dkey;
+
+    ret = _get_derived_key(context, crypto, ENCRYPTION_USAGE(usage), &dkey);
+    if (ret)
+	return ret;
+
+    ret = _key_schedule(context, dkey);
+    if (ret)
+	return ret;
+
+    return _krb5_evp_cipher_aead(context, dkey, data, num_data, ivec, encp);
+}
+
 /**
  * Inline encrypt a kerberos message
  *
@@ -1522,6 +1545,8 @@ krb5_encrypt_iov_ivec(krb5_context context,
     if(!derived_crypto(context, crypto)) {
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
+    } else if (aead_crypto(context, crypto)) {
+	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 1);
     }
 
     krb5_data_zero(&enc_data);
@@ -1686,6 +1711,8 @@ krb5_decrypt_iov_ivec(krb5_context context,
     if(!derived_crypto(context, crypto)) {
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
+    } else if (aead_crypto(context, crypto)) {
+	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 0);
     }
 
     /* header */
@@ -1960,7 +1987,7 @@ krb5_crypto_length(krb5_context context,
 	*len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_HEADER:
-	*len = crypto->et->blocksize;
+	*len = crypto->et->confoundersize;
 	return 0;
     case KRB5_CRYPTO_TYPE_DATA:
     case KRB5_CRYPTO_TYPE_SIGN_ONLY:
@@ -1973,7 +2000,10 @@ krb5_crypto_length(krb5_context context,
 	    *len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_TRAILER:
-	*len = CHECKSUMSIZE(crypto->et->keyed_checksum);
+	if (crypto->et->flags & F_AEAD)
+	    *len = crypto->et->blocksize;
+	else
+	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
 	return 0;
     case KRB5_CRYPTO_TYPE_CHECKSUM:
 	if (crypto->et->keyed_checksum)
@@ -2026,7 +2056,9 @@ krb5_encrypt_ivec(krb5_context context,
 	break;
     case F_SPECIAL:
 	ret = encrypt_internal_special (context, crypto, usage,
-					data, len, result, ivec);
+	break;
+    case F_AEAD:
+	ret = KRB5_BAD_ENCTYPE; /* supported with IOV API only */
 	break;
     case F_ENC_THEN_CKSUM:
 	ret = encrypt_internal_enc_then_cksum(context, crypto, usage,
@@ -2092,6 +2124,9 @@ krb5_decrypt_ivec(krb5_context context,
     case F_ENC_THEN_CKSUM:
 	ret = decrypt_internal_enc_then_cksum(context, crypto, usage,
 					      data, len, result, ivec);
+	break;
+    case F_AEAD:
+	ret = KRB5_BAD_ENCTYPE; /* supported with IOV API only */
 	break;
     default:
 	ret = decrypt_internal(context, crypto, data, len, result, ivec);
