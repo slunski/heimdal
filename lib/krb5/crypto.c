@@ -2116,13 +2116,18 @@ krb5_crypto_length(krb5_context context,
 	    *len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_TRAILER:
-	*len = CHECKSUMSIZE(crypto->et->keyed_checksum);
+	if (crypto->et->flags & F_AEAD)
+	    *len = crypto->et->blocksize;
+	else
+	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
 	return 0;
     case KRB5_CRYPTO_TYPE_CHECKSUM:
 	if (crypto->et->keyed_checksum)
 	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
-	else
+	else if (crypto->et->checksum)
 	    *len = CHECKSUMSIZE(crypto->et->checksum);
+	else
+	    return KRB5_PROG_SUMTYPE_NOSUPP;
 	return 0;
     }
     krb5_set_error_message(context, EINVAL,
