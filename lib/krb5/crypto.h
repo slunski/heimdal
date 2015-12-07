@@ -121,6 +121,11 @@ struct _krb5_encryption_type {
     struct _krb5_checksum_type *checksum;
     struct _krb5_checksum_type *keyed_checksum;
     unsigned flags;
+    /*
+     * If F_AEAD is set, then this function is overloaded to schedule
+     * the AEAD cipher's initialization vector and MAC. See
+     * _krb5_evp_encrypt_gcm() for an example.
+     */
     krb5_error_code (*encrypt)(krb5_context context,
 			       struct _krb5_key_data *key,
 			       void *data, size_t len,
