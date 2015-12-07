@@ -40,6 +40,7 @@
 #define CFXSealed		(1 << 1)
 #define CFXAcceptorSubkey	(1 << 2)
 
+/* Only left for test program */
 krb5_error_code
 _gsskrb5cfx_wrap_length_cfx(krb5_context context,
 			    krb5_crypto crypto,
@@ -126,7 +127,7 @@ _gssapi_wrap_size_cfx(OM_uint32 *minor_status,
 	return 0;
     req_output_size -= 16;
 
-    if (conf_req_flag) {
+    if (conf_req_flag || (ctx->more_flags & AEAD)) {
 	size_t wrapped_size, sz;
 
 	wrapped_size = req_output_size + 1;
@@ -318,7 +319,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
     gss_iov_buffer_desc *header, *trailer, *padding;
     size_t gsshsize, k5hsize;
     size_t gsstsize, k5tsize;
-    size_t rrc = 0, ec = 0, etsize;
+    size_t rrc = 0, ec = 0, etsize = 0;
     int i, j;
     gss_cfx_wrap_token token;
     krb5_error_code ret;
@@ -345,7 +346,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    return major_status;
     }
 
-    if (conf_req_flag) {
+    if (conf_req_flag || (ctx->more_flags & AEAD)) {
 	size_t k5psize = 0;
 	size_t k5pbase = 0;
 	size_t k5bsize = 0;
@@ -398,9 +399,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	}
 
 	/* non-AEAD modes include an encrypted copy of the GSS header */
-	if (conf_req_flag && (ctx->more_flags & AEAD))
-	    etsize = 0;
-	else
+	if (conf_req_flag && (ctx->more_flags & AEAD) == 0)
 	    etsize = sizeof(gss_cfx_wrap_token_desc);
 
 	gsshsize = sizeof(gss_cfx_wrap_token_desc) + k5hsize;
@@ -530,7 +529,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	goto failure;
     }
 
-    if (conf_req_flag) {
+    if (conf_req_flag || (ctx->more_flags & AEAD)) {
 	/*
 	  plain packet:
 
@@ -556,7 +555,8 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	for (j = 0; j < iov_count; i++, j++) {
 	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
 	    case GSS_IOV_BUFFER_TYPE_DATA:
-		data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+		data[i].flags = conf_req_flag ? KRB5_CRYPTO_TYPE_DATA
+					      : KRB5_CRYPTO_TYPE_SIGN_ONLY;
 		break;
 	    case GSS_IOV_BUFFER_TYPE_SIGN_ONLY:
 		data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
@@ -661,7 +661,9 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    token->RRC[0] = (rrc >> 8) & 0xFF;
 	    token->RRC[1] = (rrc >> 0) & 0xFF;
 	}
+    }
 
+    if (!conf_req_flag) {
 	token->EC[0] =  (k5tsize >> 8) & 0xFF;
 	token->EC[1] =  (k5tsize >> 0) & 0xFF;
     }
@@ -864,7 +866,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	goto failure;
     }
 
-    if (token_flags & CFXSealed) {
+    if ((token_flags & CFXSealed) || (ctx->more_flags & AEAD)) {
 	size_t k5tsize, k5hsize;
 	size_t etsize; /* size of encrypted token, unnecessary for AEAD modes */
 
@@ -883,10 +885,16 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	    major_status = GSS_S_FAILURE;
 	    goto failure;
 	}
-	if ((ctx->more_flags & AEAD) && ec != 0) {
-	    /* EC is not protected, but it is a constant value */
-	    major_status = GSS_S_DEFECTIVE_TOKEN;
-	    goto failure;
+
+	/* AEAD types don't protect EC, so assert it is correct constant value */
+	if (ctx->more_flags & AEAD) {
+	    size_t required_ec = (token_flags & CFXSealed) ? 0 : k5tsize;
+
+	    if (ec != required_ec) {
+		major_status = GSS_S_DEFECTIVE_TOKEN;
+		goto failure;
+	    }
+	    ec = 0; /* don't mess up any other calculations */
 	}
 
 	/* Rotate by RRC; bogus to do this in-place XXX */
@@ -924,14 +932,16 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 
 	i = 0;
 	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
-	data[i].data.data = (uint8_t *)header->buffer.value + header->buffer.length - k5hsize;
+	data[i].data.data = (uint8_t *)header->buffer.value +
+			    header->buffer.length - k5hsize;
 	data[i].data.length = k5hsize;
 	i++;
 
 	for (j = 0; j < iov_count; i++, j++) {
 	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
 	    case GSS_IOV_BUFFER_TYPE_DATA:
-		data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+		data[i].flags = (token_flags & CFXSealed) ? KRB5_CRYPTO_TYPE_DATA
+							  : KRB5_CRYPTO_TYPE_SIGN_ONLY;
 		break;
 	    case GSS_IOV_BUFFER_TYPE_SIGN_ONLY:
 		data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
