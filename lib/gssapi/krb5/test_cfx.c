@@ -192,14 +192,14 @@ test_special(krb5_context context, krb5_crypto crypto,
     if (ret)
 	krb5_errx(context, 1, "_gsskrb5cfx_max_wrap_length_cfx: %d", ret);
 
-    ret = _gsskrb5cfx_wrap_length_cfx(context,
-				      crypto,
-				      integ,
-				      0,
-				      max_wrap_size,
-				      &rsize, &cksumsize, &padsize);
+    ret = wrap_length_cfx(context,
+			  crypto,
+			  integ,
+			  0,
+			  max_wrap_size,
+			  &rsize, &cksumsize, &padsize);
     if (ret)
-	krb5_errx(context, 1, "_gsskrb5cfx_wrap_length_cfx: %d", ret);
+	krb5_errx(context, 1, "wrap_length_cfx: %d", ret);
 
     if (testsize < rsize)
 	krb5_errx(context, 1,
