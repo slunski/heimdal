@@ -1171,7 +1171,7 @@ _gssapi_wrap_iov_length_cfx(OM_uint32 *minor_status,
 	    return major_status;
     }
 
-    if (conf_req_flag) {
+    if (conf_req_flag || (ctx->more_flags & AEAD)) {
 	size_t k5psize = 0;
 	size_t k5pbase = 0;
 	size_t k5bsize = 0;
