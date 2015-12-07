@@ -75,7 +75,6 @@ _gsskrb5_delete_sec_context(OM_uint32 * minor_status,
     krb5_data_free(&ctx->fwd_data);
     if (ctx->crypto)
     	krb5_crypto_destroy(context, ctx->crypto);
-    krb5_data_free(&ctx->cipher_state);
 
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
     HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);
