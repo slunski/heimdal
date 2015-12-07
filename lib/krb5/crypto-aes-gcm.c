@@ -69,31 +69,30 @@ struct _krb5_checksum_type _krb5_checksum_gmac_128_aes128 = {
     CKSUMTYPE_GMAC_128_AES128,
     "gmac-128-aes128",
     128,
-    32, /* checksum is 32 bytes because it has 16 byte IV */
+    EVP_GCM_TLS_TAG_LEN,
     F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
-    _krb5_create_checksum_aead,
-    _krb5_verify_checksum_aead
+    _krb5_checksum_aead,
+    NULL
 };
 
 struct _krb5_checksum_type _krb5_checksum_gmac_128_aes256 = {
     CKSUMTYPE_GMAC_128_AES256,
     "gmac-128-aes256",
     128,
-    32, /* checksum is 28 bytes because it has 16 byte IV */
+    EVP_GCM_TLS_TAG_LEN,
     F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
-    _krb5_create_checksum_aead,
-    _krb5_verify_checksum_aead
+    _krb5_checksum_aead,
+    NULL
 };
 
 static krb5_error_code
-AES_GMAC_PRF(krb5_context context,
+AES_CMAC_PRF(krb5_context context,
 	     krb5_crypto crypto,
 	     const krb5_data *in,
 	     krb5_data *out)
 {
     krb5_error_code ret;
     krb5_data label;
-    const EVP_CIPHER *c = (*crypto->et->keytype->evp)();
 
     ret = krb5_data_alloc(&label, 3 + in->length);
     if (ret)
@@ -108,8 +107,8 @@ AES_GMAC_PRF(krb5_context context,
 	return ret;
     }
 
-    ret = _krb5_SP800_108_KDF_cipher(context, &crypto->key.key->keyvalue,
-				     &label, NULL, c, out);
+    ret = _krb5_SP800_108_KDF_CMAC(context, &crypto->key.key->keyvalue,
+				   &label, NULL, out);
 
     if (ret)
 	krb5_data_free(out);
@@ -124,14 +123,14 @@ struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128 = {
     "aes128-gcm-128",
     16,
     1,
-    16,
+    0,
     &keytype_aes128_gcm,
     NULL, /* should never be called */
     &_krb5_checksum_gmac_128_aes128,
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
     _krb5_evp_encrypt_gcm,
     16,
-    AES_GMAC_PRF
+    AES_CMAC_PRF
 };
 
 struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
@@ -140,12 +139,12 @@ struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
     "aes256-gcm-128",
     16,
     1,
-    16,
+    0,
     &keytype_aes256_gcm,
     NULL, /* should never be called */
     &_krb5_checksum_gmac_128_aes256,
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
     _krb5_evp_encrypt_gcm,
     16,
-    AES_GMAC_PRF
+    AES_CMAC_PRF
 };

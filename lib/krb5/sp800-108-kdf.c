@@ -105,19 +105,17 @@ _krb5_SP800_108_HMAC_KDF(krb5_context context,
  * @param kdc_K1	Base key material.
  * @param kdf_label	A string that identifies the purpose for the derived key.
  * @param kdf_context   A binary string containing parties, nonce, etc.
- * @param cipher	Cipher function for AEAD modes (CCM/GCM)
  * @param kdf_K0	Derived key data.
  *
  * @return Return an error code for an failure or 0 on success.
  * @ingroup krb5_crypto
  */
 krb5_error_code
-_krb5_SP800_108_KDF_cipher(krb5_context context,
-			   krb5_data *kdf_K1,
-			   krb5_data *kdf_label,
-			   krb5_data *kdf_context,
-			   const EVP_CIPHER *cipher,
-			   krb5_data *kdf_K0)
+_krb5_SP800_108_KDF_CMAC(krb5_context context,
+			 krb5_data *kdf_K1,
+			 krb5_data *kdf_label,
+			 krb5_data *kdf_context,
+			 krb5_data *kdf_K0)
 {
     unsigned char *p = kdf_K0->data;
     size_t i, n, left = kdf_K0->length;
@@ -126,8 +124,6 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
     const size_t L = kdf_K0->length;
     EVP_CIPHER_CTX c;
     int outlen;
-
-    heim_assert(cipher != NULL, "SP800-108 KDF internal error");
 
     EVP_CIPHER_CTX_init(&c);
     memset(mac, 0, sizeof(mac));
@@ -143,11 +139,11 @@ _krb5_SP800_108_KDF_cipher(krb5_context context,
 	unsigned char tmp[4];
 	size_t len;
 
-	if (EVP_CipherInit_ex(&c, cipher, NULL, kdf_K1->data, NULL, 1) != 1)
+	if (EVP_CipherInit_ex(&c, EVP_aes_128_ccm(), NULL, kdf_K1->data, NULL, 1) != 1)
 	    return KRB5_CRYPTO_INTERNAL;
 
 	/*
-	 * AES/CCM with a zero nonce, but with the previous MAC fed back
+	 * AES-CCM with a zero nonce, but with the previous MAC fed back
 	 * for subsequent invocations.
 	 */
 	if (EVP_CipherUpdate(&c, NULL, &outlen, mac, sizeof(mac)) != 1)

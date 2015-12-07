@@ -2116,10 +2116,7 @@ krb5_crypto_length(krb5_context context,
 	    *len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_TRAILER:
-	if (crypto->et->flags & F_AEAD)
-	    *len = crypto->et->blocksize;
-	else
-	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
+	*len = CHECKSUMSIZE(crypto->et->keyed_checksum);
 	return 0;
     case KRB5_CRYPTO_TYPE_CHECKSUM:
 	if (crypto->et->keyed_checksum)
@@ -2293,6 +2290,7 @@ derive_key_rfc3961(krb5_context context,
     unsigned int nblocks = 0, i;
     krb5_error_code ret = 0;
     struct _krb5_key_type *kt = et->keytype;
+    size_t key_len = 0;
 
     if(et->blocksize * 8 < kt->bits || len != et->blocksize) {
 	nblocks = (kt->bits + et->blocksize * 8 - 1) / (et->blocksize * 8);
@@ -2871,9 +2869,7 @@ wrapped_length_dervied (krb5_context context,
 
     res =  et->confoundersize + data_len;
     res =  (res + padsize - 1) / padsize * padsize;
-    if (et->flags & F_AEAD)
-	res += et->blocksize;
-    else if (et->keyed_checksum)
+    if (et->keyed_checksum)
 	res += et->keyed_checksum->checksumsize;
     else
 	res += et->checksum->checksumsize;
