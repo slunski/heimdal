@@ -150,8 +150,6 @@ extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes128;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes256;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha256_128_aes128;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha384_192_aes256;
-extern struct _krb5_checksum_type _krb5_checksum_gmac_128_aes128;
-extern struct _krb5_checksum_type _krb5_checksum_gmac_128_aes256;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_md5;
 extern struct _krb5_checksum_type _krb5_checksum_sha1;
 extern struct _krb5_checksum_type _krb5_checksum_sha2;

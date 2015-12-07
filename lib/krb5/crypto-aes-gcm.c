@@ -65,26 +65,6 @@ static struct _krb5_key_type keytype_aes256_gcm = {
     EVP_aes_256_gcm
 };
 
-struct _krb5_checksum_type _krb5_checksum_gmac_128_aes128 = {
-    CKSUMTYPE_GMAC_128_AES128,
-    "gmac-128-aes128",
-    128,
-    EVP_GCM_TLS_TAG_LEN,
-    F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
-    _krb5_checksum_aead,
-    NULL
-};
-
-struct _krb5_checksum_type _krb5_checksum_gmac_128_aes256 = {
-    CKSUMTYPE_GMAC_128_AES256,
-    "gmac-128-aes256",
-    128,
-    EVP_GCM_TLS_TAG_LEN,
-    F_KEYED | F_CPROOF | F_DERIVED | F_AEAD,
-    _krb5_checksum_aead,
-    NULL
-};
-
 static krb5_error_code
 AES_CMAC_PRF(krb5_context context,
 	     krb5_crypto crypto,
@@ -126,7 +106,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128 = {
     0,
     &keytype_aes128_gcm,
     NULL, /* should never be called */
-    &_krb5_checksum_gmac_128_aes128,
+    NULL, /* should never be called */
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
     _krb5_evp_encrypt_gcm,
     16,
@@ -142,7 +122,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
     0,
     &keytype_aes256_gcm,
     NULL, /* should never be called */
-    &_krb5_checksum_gmac_128_aes256,
+    NULL, /* should never be called */
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
     _krb5_evp_encrypt_gcm,
     16,

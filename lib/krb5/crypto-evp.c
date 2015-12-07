@@ -331,24 +331,3 @@ _krb5_evp_cipher_aead(krb5_context context,
 
     return 0;
 }
-
-/* XXX this is unsafe */
-krb5_error_code
-_krb5_checksum_aead(krb5_context context,
-		    struct _krb5_key_data *key,
-		    const void *data,
-		    size_t len,
-		    unsigned usage,
-		    Checksum *result)
-{
-    krb5_crypto_iov iov[2];
-
-    iov[0].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
-    iov[0].data.data = (void *)data;
-    iov[0].data.length = len;
-
-    iov[1].flags = KRB5_CRYPTO_TYPE_TRAILER;
-    iov[1].data = result->checksum;
-
-    return _krb5_evp_cipher_aead(context, key, iov, 2, NULL, 1);
-}
