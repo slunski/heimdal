@@ -1032,8 +1032,6 @@ main(int argc, char **argv)
     val |= iov_test(context, KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96);
     val |= iov_test(context, KRB5_ENCTYPE_AES128_CTS_HMAC_SHA256_128);
     val |= iov_test(context, KRB5_ENCTYPE_AES256_CTS_HMAC_SHA384_192);
-    val |= iov_test(context, KRB5_ENCTYPE_AES128_GCM_128);
-    val |= iov_test(context, KRB5_ENCTYPE_AES256_GCM_128);
 
     if (verbose && val == 0)
 	printf("all ok\n");
