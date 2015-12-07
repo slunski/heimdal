@@ -68,16 +68,19 @@ _gsskrb5cfx_wrap_length_cfx(krb5_context context,
     if (conf_req_flag) {
 	size_t padsize;
 	krb5_enctype enctype;
+	krb5_boolean aead;
 
 	ret = krb5_crypto_getenctype(context, crypto, &enctype);
 	if (ret)
 	    return ret;
 
 	/* Header is concatenated with data before encryption */
-	if (!_krb5_enctype_is_aead(context, enctype))
+	aead = _krb5_enctype_is_aead(context, enctype);
+	if (!aead)
 	    input_length += sizeof(gss_cfx_wrap_token_desc);
 
-	if (dce_style) {
+	/* Don't propagate MS bug for AEAD modes, MS can fix it */
+	if (dce_style && !aead) {
 		ret = krb5_crypto_getblocksize(context, crypto, &padsize);
 	} else {
 		ret = krb5_crypto_getpadsize(context, crypto, &padsize);
@@ -293,6 +296,10 @@ init_aead_ivec(void *token, void *ivec)
      *	TOK_ID || Flags || 0xFF || SND_SEQ || Counter 
      *
      * The counter is not exposed at the RFC3169 level.
+     *
+     * Note that this protects all of the token header fields except
+     * for EC, so we are responsible for asserting it is the correct
+     * value.
      */
     memcpy(ivec, p, 4);
     memcpy((uint8_t *)ivec + 4, p + 8, 8);
@@ -380,7 +387,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    k5psize = 0;
 	}
 
-	if (k5psize == 0 && IS_DCE_STYLE(ctx)) {
+	if (k5psize == 0 && IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD)) {
 	    *minor_status = krb5_crypto_getblocksize(context, ctx->crypto,
 						     &k5bsize);
 	    if (*minor_status)
@@ -516,8 +523,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 				    ++seq_number);
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
 
-    data = calloc(iov_count + 3 + ((ctx->more_flags & AEAD) ? 1 : 0),
-		  sizeof(data[0]));
+    data = calloc(iov_count + 3, sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -546,13 +552,6 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	data[i].data.data = (uint8_t *)header->buffer.value + header->buffer.length - k5hsize;
 	data[i].data.length = k5hsize;
 	i++;
-
-	if (ctx->more_flags & AEAD) {
-	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
-	    data[i].data.data = token;
-	    data[i].data.length = sizeof(*token);
-	    i++;
-	}
 
 	for (j = 0; j < iov_count; i++, j++) {
 	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
@@ -858,8 +857,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	usage = KRB5_KU_USAGE_INITIATOR_SEAL;
     }
 
-    data = calloc(iov_count + 3 + ((ctx->more_flags & AEAD) ? 1 : 0),
-		  sizeof(data[0]));
+    data = calloc(iov_count + 3, sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -883,6 +881,11 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 					   KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
 	if (*minor_status) {
 	    major_status = GSS_S_FAILURE;
+	    goto failure;
+	}
+	if ((ctx->more_flags & AEAD) && ec != 0) {
+	    /* EC is not protected, but it is a constant value */
+	    major_status = GSS_S_DEFECTIVE_TOKEN;
 	    goto failure;
 	}
 
@@ -924,19 +927,6 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	data[i].data.data = (uint8_t *)header->buffer.value + header->buffer.length - k5hsize;
 	data[i].data.length = k5hsize;
 	i++;
-
-	if (ctx->more_flags & AEAD) {
-	    gss_cfx_wrap_token_desc ttoken;
-
-	    memcpy(&ttoken, token, sizeof(ttoken));
-	    ttoken.RRC[0] = ttoken.RRC[1] = 0;
-
-	    /* Integrity protect the GSS header */
-	    data[i].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
-	    data[i].data.data = (void *)&ttoken;
-	    data[i].data.length = sizeof(ttoken);
-	    i++;
-	}
 
 	for (j = 0; j < iov_count; i++, j++) {
 	    switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
@@ -999,8 +989,24 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	    }
 	}
     } else {
-	size_t gsstsize = ec;
+	size_t gsstsize;
 	size_t gsshsize = sizeof(*token);
+
+	if (ctx->more_flags & AEAD) {
+	    /* EC is not protected, but it is a constant value */
+	    *minor_status = krb5_crypto_length(context, ctx->crypto,
+					       KRB5_CRYPTO_TYPE_TRAILER, &gsstsize);
+	    if (*minor_status != 0) {
+		major_status = GSS_S_FAILURE;
+		goto failure;
+	    }
+
+	    if (gsstsize != ec) {
+		major_status = GSS_S_DEFECTIVE_TOKEN;
+		goto failure;
+	    }
+	} else
+	    gsstsize = ec;
 
 	if (trailer == NULL) {
 	    /* Check RRC */
