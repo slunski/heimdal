@@ -2116,7 +2116,7 @@ krb5_crypto_length(krb5_context context,
 	    *len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_TRAILER:
-	if (crypto->et->flags & F_AEAD)
+	if (aead_crypto(context, crypto))
 	    *len = crypto->et->blocksize;
 	else
 	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
