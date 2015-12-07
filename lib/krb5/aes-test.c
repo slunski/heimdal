@@ -812,9 +812,9 @@ iov_test(krb5_context context, krb5_enctype enctype)
     krb5_crypto_iov iov[6];
     size_t len, i;
     unsigned char *base, *p;
-    unsigned char ivec[16], *ivecp;
+    unsigned char ivec[EVP_MAX_IV_LENGTH], *ivecp;
 
-#define RESET_IVEC(ivecp) do { if (ivecp) memset(ivecp, 0, 16); } while (0)
+#define RESET_IVEC(ivecp) do { if (ivecp) memset(ivecp, 0, EVP_MAX_IV_LENGTH); } while (0)
 
     ivecp = _krb5_enctype_is_aead(context, enctype) ? ivec : NULL;
 
