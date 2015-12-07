@@ -196,7 +196,6 @@ _krb5_evp_encrypt_gcm(krb5_context context,
 		      void *ivec)
 {
     const size_t ivecsz = 12;
-    unsigned char zeros[12];
     struct _krb5_evp_schedule *ctx = key->schedule->data;
     EVP_CIPHER_CTX *c;
     krb5_boolean preludep;
@@ -204,10 +203,8 @@ _krb5_evp_encrypt_gcm(krb5_context context,
     c = encryptp ? &ctx->ectx : &ctx->dctx;
     preludep = !!data ^ encryptp; /* is being called before encrypt/decrypt */
 
-    if (ivec == NULL) {
-	memset(zeros, 0, ivecsz);
-	ivec = zeros;
-    }
+    if (ivec == NULL)
+	return KRB5_PROG_ETYPE_NOSUPP; /* XXX */
 
     if (preludep) {
 	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, ivecsz, NULL);
