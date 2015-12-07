@@ -299,7 +299,7 @@ init_aead_ivec(void *token, void *ivec)
      *
      * Note that this protects all of the token header fields except
      * for EC, so we are responsible for asserting it is the correct
-     * value.
+     * value elsewhere.
      */
     memcpy(ivec, p, 4);
     memcpy((uint8_t *)ivec + 4, p + 8, 8);
@@ -1457,8 +1457,42 @@ OM_uint32 _gssapi_mic_cfx(OM_uint32 *minor_status,
 	usage = KRB5_KU_USAGE_ACCEPTOR_SIGN;
     }
 
-    ret = krb5_create_checksum(context, ctx->crypto,
-	usage, 0, buf, len, &cksum);
+    if (ctx->more_flags & AEAD) {
+	krb5_crypto_iov data[2];
+	uint8_t ivec[EVP_MAX_IV_LENGTH];
+
+	/* XXX assuming header is zero-length */
+	data[0].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	data[0].data.length = message_buffer->length;
+	data[0].data.data = message_buffer->value;
+
+	ret = krb5_crypto_length(context, ctx->crypto,
+				 KRB5_CRYPTO_TYPE_TRAILER,
+				 &data[1].data.length);
+	if (ret) {
+	    *minor_status = ret;
+	    free(buf);
+	    return GSS_S_FAILURE;
+	}
+
+	data[1].flags = KRB5_CRYPTO_TYPE_TRAILER;
+	data[1].data.data = malloc(data[1].data.length);
+	if (data[1].data.data == NULL) {
+	    *minor_status = ENOMEM;
+	    free(buf);
+	    return GSS_S_FAILURE;
+	}
+
+	init_aead_ivec(token, ivec);
+	ret = krb5_encrypt_iov_ivec(context, ctx->crypto, usage, data, 2, ivec);
+	if (ret)
+	    krb5_data_free(&data[1].data);
+	else
+	    cksum.checksum = data[1].data;
+    } else {
+	ret = krb5_create_checksum(context, ctx->crypto,
+				   usage, 0, buf, len, &cksum);
+    }
     if (ret != 0) {
 	*minor_status = ret;
 	free(buf);
@@ -1557,12 +1591,6 @@ OM_uint32 _gssapi_verify_mic_cfx(OM_uint32 *minor_status,
     /*
      * Verify checksum
      */
-    ret = krb5_crypto_get_checksum_type(context, ctx->crypto,
-					&cksum.cksumtype);
-    if (ret != 0) {
-	*minor_status = ret;
-	return GSS_S_FAILURE;
-    }
 
     cksum.checksum.data = p + sizeof(*token);
     cksum.checksum.length = token_buffer->length - sizeof(*token);
@@ -1573,26 +1601,52 @@ OM_uint32 _gssapi_verify_mic_cfx(OM_uint32 *minor_status,
 	usage = KRB5_KU_USAGE_INITIATOR_SIGN;
     }
 
-    buf = malloc(message_buffer->length + sizeof(*token));
-    if (buf == NULL) {
-	*minor_status = ENOMEM;
-	return GSS_S_FAILURE;
-    }
-    memcpy(buf, message_buffer->value, message_buffer->length);
-    memcpy(buf + message_buffer->length, token, sizeof(*token));
+    if (ctx->more_flags & AEAD) {
+	krb5_crypto_iov data[2];
+	uint8_t ivec[EVP_MAX_IV_LENGTH];
 
-    ret = krb5_verify_checksum(context, ctx->crypto,
-			       usage,
-			       buf,
-			       sizeof(*token) + message_buffer->length,
-			       &cksum);
-    if (ret != 0) {
-	*minor_status = ret;
+	/* XXX assuming header is zero-length */
+	data[0].flags = KRB5_CRYPTO_TYPE_SIGN_ONLY;
+	data[0].data.length = message_buffer->length;
+	data[0].data.data = message_buffer->value;
+
+	data[1].flags = KRB5_CRYPTO_TYPE_TRAILER;
+	data[1].data = cksum.checksum;
+
+	init_aead_ivec(token, ivec);
+	ret = krb5_decrypt_iov_ivec(context, ctx->crypto, usage, data, 2, ivec);
+	if (ret) {
+	    *minor_status = ret;
+	    return GSS_S_BAD_MIC;
+	}
+    } else {
+	ret = krb5_crypto_get_checksum_type(context, ctx->crypto,
+					    &cksum.cksumtype);
+	if (ret != 0) {
+	    *minor_status = ret;
+	    return GSS_S_FAILURE;
+	}
+
+	buf = malloc(message_buffer->length + sizeof(*token));
+	if (buf == NULL) {
+	    *minor_status = ENOMEM;
+	    return GSS_S_FAILURE;
+	}
+	memcpy(buf, message_buffer->value, message_buffer->length);
+	memcpy(buf + message_buffer->length, token, sizeof(*token));
+
+	ret = krb5_verify_checksum(context, ctx->crypto,
+				   usage,
+				   buf,
+				   sizeof(*token) + message_buffer->length,
+				   &cksum);
+	if (ret != 0) {
+	    *minor_status = ret;
+	    free(buf);
+	    return GSS_S_BAD_MIC;
+	}
 	free(buf);
-	return GSS_S_BAD_MIC;
     }
-
-    free(buf);
 
     if (qop_state != NULL) {
 	*qop_state = GSS_C_QOP_DEFAULT;
