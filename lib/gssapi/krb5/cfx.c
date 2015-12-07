@@ -225,7 +225,7 @@ init_aead_ivec(void *token, void *ivec)
     /*
      * GCM initialization vector looks like:
      *
-     *	TOK_ID || Flags || 0xFF || SND_SEQ || Counter 
+     *	TOK_ID || Flags || 0xFF || SND_SEQ || Counter
      *
      * The counter is not exposed at the RFC3169 level.
      *
