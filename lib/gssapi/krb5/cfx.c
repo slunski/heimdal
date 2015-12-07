@@ -474,7 +474,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 
 	  {"header" | ec-padding | E"header" | krb5-trailer | krb5-header | plaintext-data  }
 
-	  For AEAD modes, E"header" is omitted as it is protected by the IV/SIGN_ONLY data.
+	  For AEAD modes, E"header" is omitted as it is protected by the IV.
 	 */
 
 	i = 0;
