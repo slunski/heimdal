@@ -336,11 +336,6 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	gsshsize = sizeof(gss_cfx_wrap_token_desc) + k5hsize;
 	gsstsize = ec + etsize + k5tsize;
     } else {
-	if (IS_DCE_STYLE(ctx)) {
-	    *minor_status = EINVAL;
-	    return GSS_S_FAILURE;
-	}
-
 	k5hsize = 0;
 	*minor_status = krb5_crypto_length(context, ctx->crypto,
 					   KRB5_CRYPTO_TYPE_CHECKSUM,
@@ -1134,7 +1129,7 @@ _gssapi_wrap_iov_length_cfx(OM_uint32 *minor_status,
 	    k5psize = 0;
 	}
 
-	if (k5psize == 0 && IS_DCE_STYLE(ctx)) {
+	if (k5psize == 0 && IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD)) {
 	    *minor_status = krb5_crypto_getblocksize(context, ctx->crypto,
 						     &k5bsize);
 	    if (*minor_status)
@@ -1196,10 +1191,12 @@ OM_uint32 _gssapi_wrap_cfx(OM_uint32 *minor_status,
     gss_iov_buffer_desc iov[3];
     size_t i;
 
+    memset(iov, 0, sizeof(iov));
     iov[0].type = GSS_IOV_BUFFER_TYPE_HEADER;
     iov[1].type = GSS_IOV_BUFFER_TYPE_DATA;
     iov[1].buffer = *input_message_buffer;
-    iov[2].type = GSS_IOV_BUFFER_TYPE_PADDING;
+    iov[2].type = IS_DCE_STYLE(ctx) ? GSS_IOV_BUFFER_TYPE_EMPTY
+				    : GSS_IOV_BUFFER_TYPE_PADDING; /* unused */
 
     ret = _gssapi_wrap_iov_length_cfx(minor_status, ctx, context,
 				      conf_req_flag, GSS_C_QOP_DEFAULT,
@@ -1282,18 +1279,20 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
     else
 	extra_rrc = 0;
 
-    /* XXX doing this in place is not a good idea */
-    *minor_status = rrc_rotate(p, len, rrc + extra_rrc, TRUE);
-    if (*minor_status != 0)
-	return GSS_S_FAILURE;
-
-    token->RRC[0] = token->RRC[1] = 0; /* no longer rotated */
-
     memset(iov, 0, sizeof(iov));
     iov[0].type = GSS_IOV_BUFFER_TYPE_HEADER;
     iov[1].type = GSS_IOV_BUFFER_TYPE_DATA;
-    iov[2].type = GSS_IOV_BUFFER_TYPE_PADDING; /* unused */
-    iov[3].type = GSS_IOV_BUFFER_TYPE_TRAILER;
+
+    if (!IS_DCE_STYLE(ctx)) {
+	/* XXX doing this in place is not a good idea */
+	*minor_status = rrc_rotate(p, len, rrc + extra_rrc, TRUE);
+	if (*minor_status != 0)
+	    return GSS_S_FAILURE;
+
+	token->RRC[0] = token->RRC[1] = 0; /* no longer rotated */
+	iov[2].type = GSS_IOV_BUFFER_TYPE_PADDING;
+	iov[3].type = GSS_IOV_BUFFER_TYPE_TRAILER;
+    }
 
     major_status = _gssapi_wrap_iov_length_cfx(minor_status, ctx, context,
 					       !!(token->Flags & CFXSealed),
@@ -1310,14 +1309,14 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
 	return GSS_S_FAILURE;
     }
 
-    /* "header" | krb5-header */
+    /* "header" | krb5-header | (for DCE, trailer) */
     iov[0].buffer.value = input_message_buffer->value;
 
     /* plaintext-data */
     iov[1].buffer.length = input_message_buffer->length -
 			   (iov[0].buffer.length + iov[3].buffer.length);
 
-    /* ec-padding | AEAD ? "" : E"Header" | krb5-trailer */
+    /* for non-DCE, ec-padding | AEAD ? "" : E"Header" | krb5-trailer */
     iov[3].buffer.value = (uint8_t *)iov[0].buffer.value +
 			  iov[0].buffer.length + iov[1].buffer.length;
 
