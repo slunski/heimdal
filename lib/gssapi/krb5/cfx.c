@@ -1335,7 +1335,7 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
     heim_assert(input_message_buffer->length == iov[0].buffer.length +
 		iov[1].buffer.length + iov[3].buffer.length,
 		"Incorrect length calculation in _gssapi_unwrap_cfx");
-   
+
     major_status = _gssapi_unwrap_cfx_iov(minor_status, ctx, context,
 					  conf_state, qop_state,
 					  iov, sizeof(iov)/sizeof(iov[0]));
@@ -1343,7 +1343,7 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
 	OM_uint32 tmp;
 	gss_release_buffer(&tmp, output_message_buffer);
     }
- 
+
     return major_status;
 }
 
