@@ -808,21 +808,10 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	size_t k5tsize, k5hsize;
 	size_t etsize; /* size of encrypted token, unnecessary for AEAD modes */
 
+	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
+	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
+
 	etsize = (ctx->more_flags & AEAD) ? 0 : sizeof(*token);
-
-	*minor_status = krb5_crypto_length(context, ctx->crypto,
-					   KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
-	if (*minor_status) {
-	    major_status = GSS_S_FAILURE;
-	    goto failure;
-	}
-
-	*minor_status = krb5_crypto_length(context, ctx->crypto,
-					   KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
-	if (*minor_status) {
-	    major_status = GSS_S_FAILURE;
-	    goto failure;
-	}
 
 	/* AEAD types don't protect EC, so assert it is correct constant value */
 	if (ctx->more_flags & AEAD) {
