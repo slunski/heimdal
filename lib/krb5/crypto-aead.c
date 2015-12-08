@@ -58,6 +58,10 @@ _krb5_evp_cipher_aead(krb5_context context,
     EVP_CIPHER_CTX *c;
     int i, outlen;
 
+    /* AEAD etypes require initialization vectors */
+    if (ivec == NULL)
+	return KRB5_PROG_ETYPE_NOSUPP;
+
     headersz = et->confoundersize;
     trailersz = et->blocksize;
 
