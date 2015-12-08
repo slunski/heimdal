@@ -50,10 +50,10 @@ _krb5_evp_encrypt_gcm(krb5_context context,
 		      int usage,
 		      void *ivec)
 {
-    const size_t ivecsz = 12;
     struct _krb5_evp_schedule *ctx = key->schedule->data;
     EVP_CIPHER_CTX *c;
     krb5_boolean preludep;
+    krb5_data *keydata = &key->key->keyvalue;
 
     c = encryptp ? &ctx->ectx : &ctx->dctx;
     preludep = !!data ^ encryptp; /* is being called before encrypt/decrypt */
@@ -62,25 +62,38 @@ _krb5_evp_encrypt_gcm(krb5_context context,
 	return KRB5_PROG_ETYPE_NOSUPP; /* XXX */
 
     if (preludep) {
-	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, ivecsz, NULL);
-	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_FIXED, -1, ivec);
+	unsigned char nonce[12];
+
+	heim_assert(key->key->keyvalue.length >= 4, "Invalid GCM key length");
+	memcpy(nonce, (unsigned char *)keydata->data + keydata->length - 4, 4);
+	memcpy(&nonce[4], ivec, sizeof(nonce) - 4);
+
+	/*
+	 * OpenSSL API doesn't let you set the IV without generating a
+	 * new one unless you use EVP_CTRL_GCM_SET_IV_FIXED with a length
+	 * of -1. So we set a fake IV len to let us copy in the "fixed"
+	 * component independently from the invocation.
+	 */
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_FIXED, -1, nonce);
 	if (encryptp) {
-	    /* Copy in/out IV from caller (nonce or chained cipherstate) */
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
+	    /* Copy IV from caller and update */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, 8, ivec);
 	} else {
-	    /* Copy in IV from caller without incrementing counter */
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_INV, ivecsz, ivec);
-	    /* Copy in tag for verification */
+	    /* Copy (but do not update) IV and tag from caller */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_INV, 8, ivec);
 	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_TAG, len, data);
 	}
-    } else {
-	/* Copy out ivec to caller, if cipherstate chaining required */
-	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
 
-	/* Copy out tag to caller */
+	memset_s(nonce, sizeof(nonce), 0, sizeof(nonce));
+    } else {
 	if (encryptp) {
+	    /* Copy tag to caller */
 	    if (EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_GET_TAG, len, data) != 1)
 		return KRB5_CRYPTO_INTERNAL;
+	} else {
+	    /* Copy updated IV to caller */
+	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, 8, ivec);
 	}
     }
 
@@ -90,8 +103,8 @@ _krb5_evp_encrypt_gcm(krb5_context context,
 static struct _krb5_key_type keytype_aes128_gcm = {
     KRB5_ENCTYPE_AES128_GCM_128,
     "aes-128-gcm",
-    128,
-    16,
+    160,
+    20, /* extra 4 bytes for nonce salt */
     sizeof(struct _krb5_evp_schedule),
     NULL,
     _krb5_evp_schedule,
@@ -104,8 +117,8 @@ static struct _krb5_key_type keytype_aes128_gcm = {
 static struct _krb5_key_type keytype_aes256_gcm = {
     KRB5_ENCTYPE_AES256_GCM_128,
     "aes-256-gcm",
-    256,
-    32,
+    288,
+    36, /* extra 4 bytes for nonce salt */
     sizeof(struct _krb5_evp_schedule),
     NULL,
     _krb5_evp_schedule,

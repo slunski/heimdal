@@ -123,20 +123,33 @@ _krb5_SP800_108_KDF_CMAC(krb5_context context,
     unsigned int h = sizeof(mac);
     const size_t L = kdf_K0->length;
     const EVP_CIPHER *cipher;
+    size_t ckeylen;
     EVP_CIPHER_CTX c;
     int outlen;
+    unsigned char ivec[EVP_MAX_IV_LENGTH];
+    size_t iveclen;
 
     EVP_CIPHER_CTX_init(&c);
     memset(mac, 0, sizeof(mac));
 
     n = L / h;
 
-    if (kdf_K1->length == 32)
+    /* AEAD keys may include extra 4 bytes that are injected into the IV */
+    if (kdf_K1->length >= 32)
 	cipher = EVP_aes_256_ccm();
-    else if (kdf_K1->length == 16)
+    else if (kdf_K1->length >= 16)
 	cipher = EVP_aes_128_ccm();
     else
 	heim_assert(0, "Invalid K1 length passed to _krb5_SP800_108_KDF_CMAC");
+
+    ckeylen = EVP_CIPHER_key_length(cipher);
+    heim_assert(kdf_K1->length >= ckeylen &&
+		kdf_K1->length - ckeylen <= EVP_MAX_IV_LENGTH,
+		"Invalid extended K1 length passed to _krb5_SP800_108_KDF_CMAC");
+
+    iveclen = kdf_K1->length - ckeylen;
+    memcpy(ivec, (unsigned char *)kdf_K1->data + ckeylen, iveclen);
+    memset(&ivec[kdf_K1->length - ckeylen], 0, EVP_MAX_IV_LENGTH - iveclen);
 
     for (i = 0; i <= n; i++) {
 	unsigned char tmp[4];
@@ -153,7 +166,7 @@ _krb5_SP800_108_KDF_CMAC(krb5_context context,
 	    EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_SET_TAG, 16, NULL) != 1)
 	    goto failure;
 
-	if (EVP_CipherInit_ex(&c, NULL, NULL, kdf_K1->data, NULL, 1) != 1 ||
+	if (EVP_CipherInit_ex(&c, NULL, NULL, kdf_K1->data, ivec, 1) != 1 ||
 	    EVP_CipherUpdate(&c, NULL, &outlen, NULL, 0) != 1)
 	    goto failure;
 
