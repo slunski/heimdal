@@ -48,14 +48,14 @@ _krb5_evp_cipher_aead(krb5_context context,
     EVP_CIPHER_CTX *c;
     int i, outlen;
 
-    /* AEAD etypes require initialization vectors */
+    /* AEAD etypes require initialization vectors to be secure */
     if (ivec == NULL)
 	return KRB5_PROG_ETYPE_NOSUPP;
 
     headersz = et->confoundersize;
     trailersz = et->blocksize;
 
-    /* header */
+    /* header XXX */
     hiv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_HEADER);
     if (hiv) {
 	if (hiv->data.length != headersz)
@@ -77,7 +77,7 @@ _krb5_evp_cipher_aead(krb5_context context,
     ctx = dkey->schedule->data;
     c = encryptp ? &ctx->ectx : &ctx->dctx;
 
-    /* This API is overloaded just to abstract away GCM/CCM differences */
+    /* Set IV and (if decrypting) tag */
     ret = (*et->encrypt)(context, dkey,
 			 encryptp ? NULL : tiv->data.data,
 			 encryptp ? 0 : tiv->data.length,
@@ -85,7 +85,7 @@ _krb5_evp_cipher_aead(krb5_context context,
     if (ret)
 	return ret;
 
-    /* Spec/OpenSSL insist associated data comes before plaintext */
+    /* GCM specification requires AD be processed before plaintext */
     for (i = 0; i < num_data; i++) {
 	outlen = data[i].data.length;
 
@@ -97,6 +97,7 @@ _krb5_evp_cipher_aead(krb5_context context,
 	    goto failure;
     }
 
+    /* Plaintext/ciphertext */
     for (i = 0; i < num_data; i++) {
 	outlen = data[i].data.length;
 
@@ -112,6 +113,7 @@ _krb5_evp_cipher_aead(krb5_context context,
     if (EVP_CipherFinal_ex(c, NULL, &outlen) != 1)
 	goto failure;
 
+    /* Copy out updated IV and get the tag if encrypting */
     ret = (*et->encrypt)(context, dkey,
 			 encryptp ? tiv->data.data : NULL,
 			 encryptp ? tiv->data.length : 0,
