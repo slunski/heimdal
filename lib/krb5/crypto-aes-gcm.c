@@ -58,30 +58,31 @@ _krb5_evp_encrypt_gcm(krb5_context context,
     c = encryptp ? &ctx->ectx : &ctx->dctx;
     preludep = !!data ^ encryptp; /* is being called before encrypt/decrypt */
 
-    if (ivec == NULL)
-	return KRB5_PROG_ETYPE_NOSUPP; /* XXX */
+    heim_assert(ivec != NULL, "GCM requires an initialization vector");
 
+    /* set tag if decrypting in order to authenticate data */
+    if (!encryptp)
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_TAG, len, data);
+
+    /* horrible OpenSSL API: need to pass -1 to set entire IV */
     if (preludep) {
 	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, ivecsz, NULL);
 	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_FIXED, -1, ivec);
-	if (encryptp) {
-	    /* Copy in/out IV from caller (nonce or chained cipherstate) */
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
-	} else {
-	    /* Copy in IV from caller without incrementing counter */
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IV_INV, ivecsz, ivec);
-	    /* Copy in tag for verification */
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_TAG, len, data);
-	}
-    } else {
-	/* Copy out ivec to caller, if cipherstate chaining required */
-	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
+    }
 
-	/* Copy out tag to caller */
-	if (encryptp) {
-	    if (EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_GET_TAG, len, data) != 1)
-		return KRB5_CRYPTO_INTERNAL;
-	}
+    /*
+     * Update IV and increment, in case of cipherstate chaining. Note
+     * that this copies the *old* IV to ivec, so we need to call it
+     * twice to get the new IV (hence it is called irrespective of the
+     * value of preludep). This is not a problem as it in the case the
+     * cipherstate is chained, it will be reset on the prelude.
+     */
+    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
+
+    if (encryptp && !preludep) {
+	/* get authenticated tag if encrypting */
+	if (EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_GET_TAG, len, data) != 1)
+	    return KRB5_CRYPTO_INTERNAL;
     }
 
     return 0;
