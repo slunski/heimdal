@@ -39,7 +39,14 @@
 /*
  * This is overloaded to abstract away GCM/CCM differences and does not
  * actually encrypt anything, it just sets IV parameters and gets/sets
- * the tag.
+ * the tag. Ideally the OpenSSL AEAD API would be identical between
+ * different modes but unfortunately this is not the case, there are
+ * various hard-coded limitations.
+ *
+ * For example, with CCM you can set the IV directly in the context;
+ * for GCM this will not work, instead you need to call SET_IV_FIXED
+ * with a magic length of -1 (otherwise the private iv_gen flag is not
+ * set and invocation will fail).
  */
 krb5_error_code
 _krb5_evp_encrypt_gcm(krb5_context context,
