@@ -75,8 +75,7 @@ _krb5_evp_encrypt_gcm(krb5_context context,
 	}
     } else {
 	/* Copy out ivec to caller, if cipherstate chaining required */
-	if (ivec)
-	    EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
+	EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_IV_GEN, ivecsz, ivec);
 
 	/* Copy out tag to caller */
 	if (encryptp) {
