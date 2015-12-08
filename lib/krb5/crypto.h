@@ -201,3 +201,14 @@ struct _krb5_evp_schedule {
     EVP_CIPHER_CTX ectx;
     EVP_CIPHER_CTX dctx;
 };
+
+/* helper function for IOV routines */
+static inline krb5_crypto_iov *
+iov_find(krb5_crypto_iov *data, size_t num_data, unsigned type)
+{
+    size_t i;
+    for (i = 0; i < num_data; i++)
+	if (data[i].flags == type)
+	    return &data[i];
+    return NULL;
+}

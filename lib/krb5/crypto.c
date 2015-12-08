@@ -1316,16 +1316,6 @@ decrypt_internal_special(krb5_context context,
     return 0;
 }
 
-static krb5_crypto_iov *
-iov_find(krb5_crypto_iov *data, size_t num_data, unsigned type)
-{
-    size_t i;
-    for (i = 0; i < num_data; i++)
-	if (data[i].flags == type)
-	    return &data[i];
-    return NULL;
-}
-
 static size_t
 iov_enc_data_len(krb5_crypto_iov *data, int num_data)
 {

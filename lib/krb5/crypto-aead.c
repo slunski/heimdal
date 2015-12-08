@@ -32,16 +32,6 @@
 
 #include "krb5_locl.h"
 
-static krb5_crypto_iov *
-iov_find(krb5_crypto_iov *data, size_t num_data, unsigned type)
-{
-    size_t i;
-    for (i = 0; i < num_data; i++)
-	if (data[i].flags == type)
-	    return &data[i];
-    return NULL;
-}
-
 krb5_error_code
 _krb5_evp_cipher_aead(krb5_context context,
 		      struct _krb5_key_data *dkey,
