@@ -319,7 +319,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    k5psize = 0;
 	}
 
-	if (k5psize == 0 && IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD)) {
+	if (k5psize == 0 && IS_DCE_STYLE(ctx)) {
 	    *minor_status = krb5_crypto_getblocksize(context, ctx->crypto,
 						     &k5bsize);
 	    if (*minor_status)
@@ -353,7 +353,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 
     if (trailer == NULL) {
 	rrc = gsstsize;
-	if (IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD))
+	if (IS_DCE_STYLE(ctx))
 	    rrc -= ec;
 	gsshsize += gsstsize;
 	gsstsize = 0;
@@ -530,7 +530,8 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	/* Kerberos trailer comes after the gss trailer */
 	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
 	data[i].data.length = k5tsize;
-	data[i].data.data = (uint8_t *)data[i - 2].data.data + ec + etsize;
+	data[i].data.data = (uint8_t *)data[i - 2].data.data +
+			    data[i - 2].data.length + etsize;
 	i++;
 
 	if (ctx->more_flags & AEAD)
@@ -815,7 +816,14 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 
 	/* AEAD types don't protect EC, so assert it is correct constant value */
 	if (ctx->more_flags & AEAD) {
-	    size_t required_ec = (token_flags & CFXSealed) ? 0 : k5tsize;
+	    size_t required_ec;
+
+	    if ((token_flags & CFXSealed) == 0)
+		required_ec = k5tsize;
+	    else if (IS_DCE_STYLE(ctx))
+		krb5_crypto_getblocksize(context, ctx->crypto, &required_ec);
+	    else
+		required_ec = 0;
 
 	    if (ec != required_ec) {
 		major_status = GSS_S_DEFECTIVE_TOKEN;
@@ -834,7 +842,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 		goto failure;
 	    }
 
-	    if (IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD))
+	    if (IS_DCE_STYLE(ctx))
 		gsstsize += ec;
 
 	    gsshsize += gsstsize;
@@ -1129,7 +1137,7 @@ _gssapi_wrap_iov_length_cfx(OM_uint32 *minor_status,
 	    k5psize = 0;
 	}
 
-	if (k5psize == 0 && IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD)) {
+	if (k5psize == 0 && IS_DCE_STYLE(ctx)) {
 	    *minor_status = krb5_crypto_getblocksize(context, ctx->crypto,
 						     &k5bsize);
 	    if (*minor_status)
