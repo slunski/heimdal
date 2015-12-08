@@ -60,7 +60,7 @@ _krb5_evp_cipher_aead(krb5_context context,
     if (hiv) {
 	if (hiv->data.length != headersz)
 	    return KRB5_BAD_MSIZE;
-	if (encryptp && headersz)
+	if (encryptp)
 	    memset(hiv->data.data, 0, hiv->data.length);
     }
 
