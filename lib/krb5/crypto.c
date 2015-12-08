@@ -1486,9 +1486,13 @@ iov_ivec_aead(krb5_context context,
     krb5_error_code ret;
     struct _krb5_key_data *dkey;
 
-    ret = _get_derived_key(context, crypto, ENCRYPTION_USAGE(usage), &dkey);
-    if (ret)
-	return ret;
+    if (derived_crypto(context, crypto)) {
+	ret = _get_derived_key(context, crypto, ENCRYPTION_USAGE(usage), &dkey);
+	if (ret)
+	    return ret;
+    } else {
+	dkey = &crypto->key;
+    }
 
     ret = _key_schedule(context, dkey);
     if (ret)
@@ -1546,11 +1550,11 @@ krb5_encrypt_iov_ivec(krb5_context context,
 	return KRB5_CRYPTO_INTERNAL;
     }
 
-    if(!derived_crypto(context, crypto)) {
+    if (aead_crypto(context, crypto)) {
+	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 1);
+    } else if (!derived_crypto(context, crypto)) {
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
-    } else if (aead_crypto(context, crypto)) {
-	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 1);
     }
 
     krb5_data_zero(&enc_data);
@@ -1712,11 +1716,11 @@ krb5_decrypt_iov_ivec(krb5_context context,
     struct _krb5_encryption_type *et = crypto->et;
     krb5_crypto_iov *tiv, *hiv;
 
-    if(!derived_crypto(context, crypto)) {
+    if (aead_crypto(context, crypto)) {
+	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 0);
+    } else if(!derived_crypto(context, crypto)) {
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
-    } else if (aead_crypto(context, crypto)) {
-	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 0);
     }
 
     /* header */
@@ -1981,7 +1985,8 @@ krb5_crypto_length(krb5_context context,
 		   int type,
 		   size_t *len)
 {
-    if (!derived_crypto(context, crypto)) {
+    if (!aead_crypto(context,crypto) &&
+	!derived_crypto(context, crypto)) {
 	krb5_set_error_message(context, EINVAL, "not a derived crypto");
 	return EINVAL;
     }
