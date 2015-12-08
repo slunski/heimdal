@@ -67,7 +67,7 @@ _krb5_evp_cipher_aead(krb5_context context,
 	if (hiv->data.length != headersz)
 	    return KRB5_BAD_MSIZE;
 	if (encryptp && headersz)
-	    krb5_generate_random_block(hiv->data.data, hiv->data.length);
+	    memset(hiv->data.data, 0, hiv->data.length);
     }
 
     /* padding */
