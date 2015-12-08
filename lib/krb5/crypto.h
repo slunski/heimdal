@@ -124,7 +124,7 @@ struct _krb5_encryption_type {
     /*
      * If F_AEAD is set, then this function is overloaded to schedule
      * the AEAD cipher's initialization vector and MAC. See
-     * _krb5_evp_encrypt_gcm() for an example.
+     * _krb5_evp_control_gcm() for an example.
      */
 #define aead_control encrypt
     krb5_error_code (*encrypt)(krb5_context context,
