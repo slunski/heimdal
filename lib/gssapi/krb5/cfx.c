@@ -218,7 +218,7 @@ _gk_verify_buffers(OM_uint32 *minor_status,
 static void
 init_aead_ivec(void *token, void *ivec)
 {
-    unsigned char *p = token;
+    const gss_cfx_mic_token ttoken = (const gss_cfx_mic_token)token;
 
     memset(ivec, 0, EVP_MAX_IV_LENGTH);
 
@@ -231,10 +231,10 @@ init_aead_ivec(void *token, void *ivec)
      *
      * Note that this protects all of the token header fields except
      * for EC, so we are responsible for asserting it is the correct
-     * value elsewhere.
+     * value elsewhere (RRC is always unprotected).
      */
-    memcpy(ivec, p, 4);
-    memcpy((uint8_t *)ivec + 4, p + 8, 8);
+    memcpy(ivec, ttoken, 4);
+    memcpy((uint8_t *)ivec + 4, ttoken->SND_SEQ, 8);
 }
 
 OM_uint32
@@ -353,7 +353,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 
     if (trailer == NULL) {
 	rrc = gsstsize;
-	if (IS_DCE_STYLE(ctx))
+	if (IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD))
 	    rrc -= ec;
 	gsshsize += gsstsize;
 	gsstsize = 0;
@@ -448,7 +448,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 				    ++seq_number);
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
 
-    data = calloc(iov_count + 3, sizeof(data[0]));
+    data = calloc(iov_count + 4, sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -500,24 +500,37 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	 * encrypted token header is always at the end of the
 	 * ciphertext.
 	 */
-
-	/* encrypted CFX header in trailer (or after the header if in
-	   DCE mode). Copy in header into E"header"
-	*/
-	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	if (token->Flags & CFXSealed) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	    data[i].data.length = ec;
+	} else {
+	    data[i].flags = KRB5_CRYPTO_TYPE_EMPTY;
+	    data[i].data.length = 0;
+	}
 	if (trailer)
 	    data[i].data.data = trailer->buffer.value;
 	else
 	    data[i].data.data = (uint8_t *)header->buffer.value + sizeof(*token);
-	data[i].data.length = ec + etsize;
-	memset(data[i].data.data, 0xFF, ec);
-	memcpy(((uint8_t *)data[i].data.data) + ec, token, etsize);
+	memset(data[i].data.data, 0xFF, data[i].data.length);
+	i++;
+
+	/* encrypted CFX header in trailer (or after the header if in
+	   DCE mode). Copy in header into E"header".
+	*/
+	if (ctx->more_flags & AEAD) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_EMPTY;
+	} else {
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	    data[i].data.data = (uint8_t *)data[i - 1].data.data + ec;
+	    memcpy(data[i].data.data, token, sizeof(*token));
+	}
+	data[i].data.length = sizeof(*token);
 	i++;
 
 	/* Kerberos trailer comes after the gss trailer */
 	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
-	data[i].data.data = (uint8_t *)data[i - 1].data.data + ec + etsize;
 	data[i].data.length = k5tsize;
+	data[i].data.data = (uint8_t *)data[i - 2].data.data + ec + etsize;
 	i++;
 
 	if (ctx->more_flags & AEAD)
@@ -530,7 +543,6 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	    major_status = GSS_S_FAILURE;
 	    goto failure;
 	}
-
 	if (rrc) {
 	    token->RRC[0] = (rrc >> 8) & 0xFF;
 	    token->RRC[1] = (rrc >> 0) & 0xFF;
@@ -785,7 +797,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	usage = KRB5_KU_USAGE_INITIATOR_SEAL;
     }
 
-    data = calloc(iov_count + 3, sizeof(data[0]));
+    data = calloc(iov_count + 4, sizeof(data[0]));
     if (data == NULL) {
 	*minor_status = ENOMEM;
 	major_status = GSS_S_FAILURE;
@@ -820,7 +832,6 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 		major_status = GSS_S_DEFECTIVE_TOKEN;
 		goto failure;
 	    }
-	    ec = 0; /* don't mess up any other calculations */
 	}
 
 	/* Rotate by RRC; bogus to do this in-place XXX */
@@ -834,7 +845,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 		goto failure;
 	    }
 
-	    if (IS_DCE_STYLE(ctx))
+	    if (IS_DCE_STYLE(ctx) && !(ctx->more_flags & AEAD))
 		gsstsize += ec;
 
 	    gsshsize += gsstsize;
@@ -880,23 +891,37 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	    data[i].data.data = iov[j].buffer.value;
 	}
 
+	/* EC bytes */
+	if (trailer)
+	    data[i].data.data = trailer->buffer.value;
+	else
+	    data[i].data.data = (uint8_t *)header->buffer.value + sizeof(*token);
+	if (token_flags & CFXSealed) {
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	    data[i].data.length = ec;
+	} else {
+	    data[i].flags = KRB5_CRYPTO_TYPE_EMPTY; /* for AEAD MIC path */
+	    data[i].data.length = 0;
+	}
+	i++;
+
 	/* encrypted CFX header in trailer (or after the header if in
 	   DCE mode). Copy in header into E"header" (for non-AEAD modes).
 	   For AEAD modes, this is just the EC bytes (if any).
 	*/
-	data[i].flags = KRB5_CRYPTO_TYPE_DATA;
-	if (trailer) {
-	    data[i].data.data = trailer->buffer.value;
-	} else {
-	    data[i].data.data = (uint8_t *)header->buffer.value + sizeof(*token);
-	}
-	data[i].data.length = ec + etsize;
+	if (ctx->more_flags & AEAD)
+	    data[i].flags = KRB5_CRYPTO_TYPE_EMPTY;
+	else
+	    data[i].flags = KRB5_CRYPTO_TYPE_DATA;
+	data[i].data.data = (uint8_t *)data[i - 1].data.data +
+			    data[i - 1].data.length;
+	data[i].data.length = etsize;
 	i++;
 
 	/* Kerberos trailer comes after the gss trailer */
 	data[i].flags = KRB5_CRYPTO_TYPE_TRAILER;
-	data[i].data.data = ((uint8_t *)data[i-1].data.data) +
-			    data[i-1].data.length;
+	data[i].data.data = ((uint8_t *)data[i - 2].data.data) +
+			    data[i - 2].data.length + etsize;
 	data[i].data.length = k5tsize;
 	i++;
 
@@ -914,7 +939,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	if ((ctx->more_flags & AEAD) == 0) {
 	    gss_cfx_wrap_token ttoken;
 
-	    ttoken = (gss_cfx_wrap_token)(((uint8_t *)data[i - 2].data.data) + ec);
+	    ttoken = (gss_cfx_wrap_token)((uint8_t *)data[i - 2].data.data);
 	    ttoken->RRC[0] = token->RRC[0];
 	    ttoken->RRC[1] = token->RRC[1];
 
@@ -928,21 +953,7 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	size_t gsstsize;
 	size_t gsshsize = sizeof(*token);
 
-	if (ctx->more_flags & AEAD) {
-	    /* EC is not protected, but it is a constant value */
-	    *minor_status = krb5_crypto_length(context, ctx->crypto,
-					       KRB5_CRYPTO_TYPE_TRAILER, &gsstsize);
-	    if (*minor_status != 0) {
-		major_status = GSS_S_FAILURE;
-		goto failure;
-	    }
-
-	    if (gsstsize != ec) {
-		major_status = GSS_S_DEFECTIVE_TOKEN;
-		goto failure;
-	    }
-	} else
-	    gsstsize = ec;
+	gsstsize = ec;
 
 	if (trailer == NULL) {
 	    /* Check RRC */
