@@ -49,7 +49,7 @@
  * set and invocation will fail).
  */
 krb5_error_code
-_krb5_evp_encrypt_gcm(krb5_context context,
+_krb5_evp_control_gcm(krb5_context context,
 		      struct _krb5_key_data *key,
 		      void *data,
 		      size_t len,
@@ -166,7 +166,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128 = {
     NULL, /* should never be called */
     NULL, /* should never be called */
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
-    _krb5_evp_encrypt_gcm,
+    _krb5_evp_control_gcm,
     16,
     AES_CMAC_PRF
 };
@@ -182,7 +182,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
     NULL, /* should never be called */
     NULL, /* should never be called */
     F_DERIVED | F_SP800_108_KDF | F_ENC_THEN_CKSUM | F_AEAD,
-    _krb5_evp_encrypt_gcm,
+    _krb5_evp_control_gcm,
     16,
     AES_CMAC_PRF
 };

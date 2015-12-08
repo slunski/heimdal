@@ -126,6 +126,7 @@ struct _krb5_encryption_type {
      * the AEAD cipher's initialization vector and MAC. See
      * _krb5_evp_encrypt_gcm() for an example.
      */
+#define aead_control encrypt
     krb5_error_code (*encrypt)(krb5_context context,
 			       struct _krb5_key_data *key,
 			       void *data, size_t len,

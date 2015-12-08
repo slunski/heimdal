@@ -78,10 +78,10 @@ _krb5_evp_cipher_aead(krb5_context context,
     c = encryptp ? &ctx->ectx : &ctx->dctx;
 
     /* Set IV and (if decrypting) tag */
-    ret = (*et->encrypt)(context, dkey,
-			 encryptp ? NULL : tiv->data.data,
-			 encryptp ? 0 : tiv->data.length,
-			 encryptp, 0, ivec);
+    ret = (*et->aead_control)(context, dkey,
+			      encryptp ? NULL : tiv->data.data,
+			      encryptp ? 0 : tiv->data.length,
+			      encryptp, 0, ivec);
     if (ret)
 	return ret;
 
@@ -114,10 +114,10 @@ _krb5_evp_cipher_aead(krb5_context context,
 	goto failure;
 
     /* Copy out updated IV and get the tag if encrypting */
-    ret = (*et->encrypt)(context, dkey,
-			 encryptp ? tiv->data.data : NULL,
-			 encryptp ? tiv->data.length : 0,
-			 encryptp, 0, ivec);
+    ret = (*et->aead_control)(context, dkey,
+			      encryptp ? tiv->data.data : NULL,
+			      encryptp ? tiv->data.length : 0,
+			      encryptp, 0, ivec);
     if (ret)
 	return ret;
 
