@@ -109,7 +109,7 @@ _krb5_evp_cipher_aead(krb5_context context,
     }
 
     /* Generates tag */
-    if (EVP_CipherUpdate(c, NULL, &outlen, NULL, 0) != 1)
+    if (EVP_CipherFinal_ex(c, NULL, &outlen) != 1)
 	return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
 
     ret = (*et->encrypt)(context, dkey,
