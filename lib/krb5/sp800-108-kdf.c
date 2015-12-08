@@ -130,8 +130,6 @@ _krb5_SP800_108_KDF_CMAC(krb5_context context,
     memset(mac, 0, sizeof(mac));
 
     n = L / h;
-    if (n == 0)
-	n = 1;
 
     if (kdf_K1->length == 32)
 	cipher = EVP_aes_256_ccm();
@@ -140,29 +138,29 @@ _krb5_SP800_108_KDF_CMAC(krb5_context context,
     else
 	heim_assert(0, "Invalid K1 length passed to _krb5_SP800_108_KDF_CMAC");
 
-    /*
-     * Chose feedback mode as it was used in draft-kanno-krbwg-camellia-ccm-03
-     */
-    for (i = 1; i <= n; i++) {
+    for (i = 0; i <= n; i++) {
 	unsigned char tmp[4];
 	size_t len;
 
-	if (EVP_CipherInit_ex(&c, cipher, NULL, kdf_K1->data, NULL, 1) != 1)
+	if (EVP_CipherInit_ex(&c, cipher, NULL, NULL, NULL, 1) != 1)
 	    goto failure;
 
 	/*
 	 * AES-CCM with a zero nonce, but with the previous MAC fed back
 	 * for subsequent invocations.
 	 */
-	if (EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_SET_IVLEN, 12, NULL) != 1 ||
-	    EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_SET_TAG, 16, NULL) != 1 ||
+	if (EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_SET_IVLEN, 11, NULL) != 1 ||
+	    EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_SET_TAG, 16, NULL) != 1)
+	    goto failure;
+
+	if (EVP_CipherInit_ex(&c, NULL, NULL, kdf_K1->data, NULL, 1) != 1 ||
 	    EVP_CipherUpdate(&c, NULL, &outlen, NULL, 0) != 1)
 	    goto failure;
 
 	if (EVP_CipherUpdate(&c, NULL, &outlen, mac, sizeof(mac)) != 1)
 	    goto failure;
 
-	_krb5_put_int(tmp, i, 4);
+	_krb5_put_int(tmp, i + 1, 4);
 	if (EVP_CipherUpdate(&c, NULL, &outlen, tmp, 4) != 1)
 	    goto failure;
 	if (EVP_CipherUpdate(&c, NULL, &outlen,
@@ -179,9 +177,13 @@ _krb5_SP800_108_KDF_CMAC(krb5_context context,
 	_krb5_put_int(tmp, L * 8, 4);
 	if (EVP_CipherUpdate(&c, NULL, &outlen, tmp, 4) != 1)
 	    goto failure;
+	/* encrypting something is necessary to force MAC to output anything */
+	if (EVP_CipherUpdate(&c, tmp, &outlen, tmp, 0) != 1)
+	    goto failure;
 	if (EVP_CipherFinal(&c, NULL, &outlen) != 1)
 	    goto failure;
-	EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_GCM_GET_TAG, sizeof(mac), mac);
+	if (EVP_CIPHER_CTX_ctrl(&c, EVP_CTRL_CCM_GET_TAG, sizeof(mac), mac) != 1)
+	    goto failure;
 	len = h > left ? left : h;
 	memcpy(p, mac, len);
 	p += len;
