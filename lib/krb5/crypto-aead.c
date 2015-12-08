@@ -94,7 +94,7 @@ _krb5_evp_cipher_aead(krb5_context context,
 
 	if (EVP_CipherUpdate(c, NULL, &outlen,
 			     data[i].data.data, data[i].data.length) != 1)
-	    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+	    goto failure;
     }
 
     for (i = 0; i < num_data; i++) {
@@ -105,12 +105,12 @@ _krb5_evp_cipher_aead(krb5_context context,
 
 	if (EVP_CipherUpdate(c, data[i].data.data, &outlen,
 			     data[i].data.data, data[i].data.length) != 1)
-	    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+	    goto failure;
     }
 
     /* Generates tag */
     if (EVP_CipherFinal_ex(c, NULL, &outlen) != 1)
-	return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
+	goto failure;
 
     ret = (*et->encrypt)(context, dkey,
 			 encryptp ? tiv->data.data : NULL,
@@ -120,4 +120,7 @@ _krb5_evp_cipher_aead(krb5_context context,
 	return ret;
 
     return 0;
+
+failure:
+    return encryptp ? KRB5_CRYPTO_INTERNAL : KRB5KRB_AP_ERR_BAD_INTEGRITY;
 }
