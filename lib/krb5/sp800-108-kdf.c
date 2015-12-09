@@ -111,7 +111,7 @@ _krb5_SP800_108_HMAC_KDF(krb5_context context,
  * @ingroup krb5_crypto
  */
 krb5_error_code
-_krb5_SP800_108_KDF_CMAC(krb5_context context,
+_krb5_SP800_108_CMAC_KDF(krb5_context context,
 			 krb5_data *kdf_K1,
 			 krb5_data *kdf_label,
 			 krb5_data *kdf_context,
