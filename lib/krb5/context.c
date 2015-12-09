@@ -912,6 +912,8 @@ KRB5_LIB_FUNCTION const krb5_enctype * KRB5_LIB_CALL
 krb5_kerberos_enctypes(krb5_context context)
 {
     static const krb5_enctype p[] = {
+	ETYPE_AES256_GCM_128,
+	ETYPE_AES128_GCM_128,
 	ETYPE_AES256_CTS_HMAC_SHA1_96,
 	ETYPE_AES128_CTS_HMAC_SHA1_96,
 	ETYPE_AES256_CTS_HMAC_SHA384_192,
@@ -922,6 +924,8 @@ krb5_kerberos_enctypes(krb5_context context)
     };
 
     static const krb5_enctype weak[] = {
+	ETYPE_AES256_GCM_128,
+	ETYPE_AES128_GCM_128,
 	ETYPE_AES256_CTS_HMAC_SHA1_96,
 	ETYPE_AES128_CTS_HMAC_SHA1_96,
 	ETYPE_AES256_CTS_HMAC_SHA384_192,
@@ -1053,7 +1057,9 @@ krb5_get_default_in_tkt_etypes(krb5_context context,
 
     heim_assert(pdu_type == KRB5_PDU_AS_REQUEST || 
 		pdu_type == KRB5_PDU_TGS_REQUEST ||
-		pdu_type == KRB5_PDU_NONE, "pdu contant not as expected");
+		pdu_type == KRB5_PDU_NONE ||
+		pdu_type == KRB5_PDU_ETYPE_NEGO,
+		"pdu contant not as expected");
 
     if (pdu_type == KRB5_PDU_AS_REQUEST && context->as_etypes != NULL)
 	enctypes = context->as_etypes;
@@ -1489,6 +1495,8 @@ _krb5_init_etype(krb5_context context,
 		 const krb5_enctype *etypes)
 {
     krb5_error_code ret;
+    krb5_enctype *p;
+    unsigned netypes;
 
     if (etypes == NULL)
 	ret = krb5_get_default_in_tkt_etypes(context, pdu_type, val);
@@ -1497,11 +1505,22 @@ _krb5_init_etype(krb5_context context,
     if (ret)
 	return ret;
 
-    if (len) {
-	*len = 0;
-	while ((*val)[*len] != KRB5_ENCTYPE_NULL)
-	    (*len)++;
+    for (netypes = 0; (*val)[netypes] != ENCTYPE_NULL; netypes++)
+	;
+
+    p = *val;
+    while (*p != ENCTYPE_NULL) {
+	if (pdu_type != KRB5_PDU_ETYPE_NEGO &&
+	    _krb5_enctype_is_aead(context, *p)) {
+	    memmove(p, p + 1, (netypes - (p - *val)) * sizeof(krb5_enctype));
+	    netypes--;
+	} else
+	    p++;
     }
+
+    if (len)
+	*len = netypes;
+
     return 0;
 }
 

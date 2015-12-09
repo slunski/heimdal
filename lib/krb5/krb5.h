@@ -182,7 +182,8 @@ typedef enum krb5_pdu {
     KRB5_PDU_KRB_SAFE = 8,
     KRB5_PDU_KRB_PRIV = 9,
     KRB5_PDU_KRB_CRED = 10,
-    KRB5_PDU_NONE = 11 /* See krb5_get_permitted_enctypes() */
+    KRB5_PDU_NONE = 11, /* See krb5_get_permitted_enctypes() */
+    KRB5_PDU_ETYPE_NEGO = 12
 } krb5_pdu;
 
 typedef PADATA_TYPE krb5_preauthtype;
