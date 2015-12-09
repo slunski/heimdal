@@ -1508,6 +1508,13 @@ _krb5_init_etype(krb5_context context,
     for (netypes = 0; (*val)[netypes] != ENCTYPE_NULL; netypes++)
 	;
 
+    /*
+     * We want to hide any AEAD encryption types unless we are doing RFC4537
+     * enctype negotiation for GSS-API. This does not stop someone using the
+     * type directly, although owing to the lack of a checksum and string2key
+     * function (along with an IV being mandatory), they're unlikely to get
+     * too far without understanding its semantics.
+     */
     p = *val;
     while (*p != ENCTYPE_NULL) {
 	if (pdu_type != KRB5_PDU_ETYPE_NEGO &&
