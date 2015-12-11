@@ -68,7 +68,7 @@ struct krb5_crypto_data {
 
 #define F_RFC3961_KDF		0x1000	/* RFC3961 KDF */
 #define F_SP800_108_HMAC_KDF	0x2000	/* SP800-108 HMAC KDF */
-#define F_SP800_108_CMAC_KDF	0x2000	/* SP800-108 CMAC KDF */
+#define F_SP800_108_CMAC_KDF	0x4000	/* SP800-108 CMAC KDF */
 #define F_KDF_MASK		0xF000
 
 struct salt_type {

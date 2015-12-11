@@ -2176,7 +2176,6 @@ derive_key_rfc3961(krb5_context context,
     unsigned int nblocks = 0, i;
     krb5_error_code ret = 0;
     struct _krb5_key_type *kt = et->keytype;
-    size_t key_len = 0;
 
     if(et->blocksize * 8 < kt->bits || len != et->blocksize) {
 	nblocks = (kt->bits + et->blocksize * 8 - 1) / (et->blocksize * 8);
@@ -2287,6 +2286,36 @@ derive_key_sp800_hmac(krb5_context context,
     return ret;
 }
 
+static krb5_error_code
+derive_key_sp800_cmac(krb5_context context,
+		      struct _krb5_encryption_type *et,
+		      struct _krb5_key_data *key,
+		      const void *constant,
+		      size_t len)
+{
+    krb5_error_code ret;
+    struct _krb5_key_type *kt = et->keytype;
+    krb5_data label;
+    krb5_data K1;
+
+    ret = krb5_data_alloc(&K1, kt->size);
+    if (ret)
+	return ret;
+
+    label.data = (void *)constant;
+    label.length = len;
+
+    ret = _krb5_SP800_108_CMAC_KDF(context, &key->key->keyvalue,
+				   &label, NULL, &K1);
+    if (ret == 0)
+	memcpy(key->key->keyvalue.data, K1.data, K1.length);
+
+    memset_s(K1.data, K1.length, 0, K1.length);
+    krb5_data_free(&K1);
+
+    return ret;
+}
+
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 _krb5_derive_key(krb5_context context,
 		 struct _krb5_encryption_type *et,
@@ -2306,6 +2335,9 @@ _krb5_derive_key(krb5_context context,
 	break;
     case F_SP800_108_HMAC_KDF:
 	ret = derive_key_sp800_hmac(context, et, key, constant, len);
+	break;
+    case F_SP800_108_CMAC_KDF:
+	ret = derive_key_sp800_cmac(context, et, key, constant, len);
 	break;
     default:
 	ret = KRB5_CRYPTO_INTERNAL;
