@@ -1540,9 +1540,14 @@ krb5_encrypt_iov_ivec(krb5_context context,
 	return KRB5_CRYPTO_INTERNAL;
     }
 
-    if (aead_crypto(context, crypto)) {
+    switch (crypto->et->flags & F_CRYPTO_MASK) {
+    case F_RFC3961_ENC:
+    case F_ENC_THEN_CKSUM:
+	break;
+    case F_AEAD:
 	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 1);
-    } else if (!derived_crypto(context, crypto)) {
+	break;
+    default:
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
     }
@@ -1706,9 +1711,13 @@ krb5_decrypt_iov_ivec(krb5_context context,
     struct _krb5_encryption_type *et = crypto->et;
     krb5_crypto_iov *tiv, *hiv;
 
-    if (aead_crypto(context, crypto)) {
+    switch (crypto->et->flags & F_CRYPTO_MASK) {
+    case F_RFC3961_ENC:
+    case F_ENC_THEN_CKSUM:
+	break;
+    case F_AEAD:
 	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 0);
-    } else if(!derived_crypto(context, crypto)) {
+    default:
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
     }
@@ -1975,8 +1984,12 @@ krb5_crypto_length(krb5_context context,
 		   int type,
 		   size_t *len)
 {
-    if (!aead_crypto(context,crypto) &&
-	!derived_crypto(context, crypto)) {
+    switch (crypto->et->flags & F_CRYPTO_MASK) {
+    case F_RFC3961_ENC:
+    case F_ENC_THEN_CKSUM:
+    case F_AEAD:
+	break;
+    default:
 	krb5_set_error_message(context, EINVAL, "not a derived crypto");
 	return EINVAL;
     }
@@ -1999,7 +2012,7 @@ krb5_crypto_length(krb5_context context,
 	    *len = 0;
 	return 0;
     case KRB5_CRYPTO_TYPE_TRAILER:
-	if (aead_crypto(context, crypto))
+	if (crypto->et->flags & F_AEAD)
 	    *len = crypto->et->blocksize;
 	else
 	    *len = CHECKSUMSIZE(crypto->et->keyed_checksum);
@@ -2057,6 +2070,7 @@ krb5_encrypt_ivec(krb5_context context,
 	break;
     case F_SPECIAL:
 	ret = encrypt_internal_special (context, crypto, usage,
+					data, len, result, ivec);
 	break;
     case F_AEAD:
 	ret = KRB5_PROG_ETYPE_NOSUPP;

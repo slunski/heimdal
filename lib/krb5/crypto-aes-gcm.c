@@ -165,7 +165,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_gcm_128 = {
     &keytype_aes128_gcm,
     NULL, /* should never be called */
     NULL, /* should never be called */
-    F_DERIVED | F_ENC_THEN_CKSUM | F_SP800_108_CMAC_KDF | F_AEAD,
+    F_DERIVED | F_AEAD | F_SP800_108_CMAC_KDF,
     _krb5_evp_control_gcm,
     16,
     AES_CMAC_PRF
@@ -181,7 +181,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_gcm_128 = {
     &keytype_aes256_gcm,
     NULL, /* should never be called */
     NULL, /* should never be called */
-    F_DERIVED | F_ENC_THEN_CKSUM | F_SP800_108_CMAC_KDF | F_AEAD,
+    F_DERIVED | F_AEAD | F_SP800_108_CMAC_KDF,
     _krb5_evp_control_gcm,
     16,
     AES_CMAC_PRF
