@@ -1717,6 +1717,7 @@ krb5_decrypt_iov_ivec(krb5_context context,
 	break;
     case F_AEAD:
 	return iov_ivec_aead(context, crypto, usage, data, num_data, ivec, 0);
+	break;
     default:
 	krb5_clear_error_message(context);
 	return KRB5_CRYPTO_INTERNAL;
