@@ -693,6 +693,158 @@ unrotate_iov(OM_uint32 *minor_status, size_t rrc, gss_iov_buffer_desc *iov, int 
     return GSS_S_COMPLETE;
 }
 
+static OM_uint32
+unwrap_cfx_stream(OM_uint32 *minor_status,
+		  const gsskrb5_ctx ctx,
+		  krb5_context context,
+		  int *conf_state,
+		  gss_qop_t *qop_state,
+		  gss_iov_buffer_desc *iov,
+		  int iov_count)
+{
+    OM_uint32 major_status, tmp;
+    gss_cfx_wrap_token token;
+    gss_iov_buffer_t stream, data;
+    gss_iov_buffer_t tdata, theader, ttrailer, tpadding;
+    uint16_t ec, rrc, extra_rrc;
+    size_t len, i, j;
+    u_char *p;
+    gss_iov_buffer_desc *tiov;
+
+    *minor_status = 0;
+
+    stream = _gk_find_buffer(iov, iov_count, GSS_IOV_BUFFER_TYPE_STREAM);
+    heim_assert(stream != NULL, "unwrap_cfx_stream invoked without stream IOV");
+
+    if (stream->buffer.length < sizeof(*token))
+	return GSS_S_DEFECTIVE_TOKEN;
+
+    p = stream->buffer.value;
+    token = (gss_cfx_wrap_token)p;
+
+    if (token->TOK_ID[0] != 0x05 || token->TOK_ID[1] != 0x04)
+	return GSS_S_DEFECTIVE_TOKEN;
+
+    if (token->Filler != 0xFF)
+	return GSS_S_DEFECTIVE_TOKEN;
+
+    ec  = (token->EC[0]  << 8) | token->EC[1];
+    rrc = (token->RRC[0] << 8) | token->RRC[1];
+
+    p += sizeof(*token);
+    len = stream->buffer.length;
+    len -= (p - (u_char *)stream->buffer.value);
+
+    /* rotating by RRC+EC is for Windows bug workaround */
+    if ((token->Flags & CFXSealed) && IS_DCE_STYLE(ctx))
+	extra_rrc = ec;
+    else
+	extra_rrc = 0;
+
+    if (!IS_DCE_STYLE(ctx)) {
+	/* XXX doing this in place is not a good idea */
+	*minor_status = rrc_rotate(p, len, rrc + extra_rrc, TRUE);
+	if (*minor_status != 0)
+	    return GSS_S_FAILURE;
+	token->RRC[0] = token->RRC[1] = 0; /* no longer rotated */
+    }
+
+    tiov = calloc(iov_count + 2, sizeof(*iov));
+    if (tiov == NULL) {
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+
+    i = 0;
+    theader = &tiov[i];
+    theader->type = GSS_IOV_BUFFER_TYPE_HEADER;
+    i++;
+
+    for (j = 0, tdata = NULL; j < iov_count; j++) {
+	switch (GSS_IOV_BUFFER_TYPE(iov[j].type)) {
+	case GSS_IOV_BUFFER_TYPE_DATA:
+	    if (tdata != NULL) {
+		free(tiov);
+		return GSS_S_DEFECTIVE_TOKEN;
+	    }
+	    tdata = &tiov[i];
+	    data = &iov[j];
+	    /* fallthrough */
+	case GSS_IOV_BUFFER_TYPE_SIGN_ONLY:
+	    tiov[i] = iov[j];
+	    i++;
+	    break;
+	default:
+	    break;
+	}
+    }
+
+    tpadding = &tiov[i];
+    tiov[i].type = IS_DCE_STYLE(ctx) ? GSS_IOV_BUFFER_TYPE_EMPTY
+				     : GSS_IOV_BUFFER_TYPE_PADDING;
+    i++;
+
+    ttrailer = &tiov[i];
+    tiov[i].type = IS_DCE_STYLE(ctx) ? GSS_IOV_BUFFER_TYPE_EMPTY
+				     : GSS_IOV_BUFFER_TYPE_TRAILER;
+    i++;
+
+    heim_assert(i == iov_count + 2, "invalid IOV count");
+
+    major_status = _gssapi_wrap_iov_length_cfx(minor_status, ctx, context,
+					       !!(token->Flags & CFXSealed),
+					       GSS_C_QOP_DEFAULT, conf_state,
+					       tiov, i);
+    if (major_status != GSS_S_COMPLETE)
+	return GSS_S_FAILURE;
+
+    heim_assert(tpadding->buffer.length == 0, "wrong padding length");
+
+    len = theader->buffer.length + tpadding->buffer.length + ttrailer->buffer.length;
+
+    if (stream->buffer.length < len) {
+	gss_release_iov_buffer(&tmp, tiov, i);
+	return GSS_S_DEFECTIVE_TOKEN;
+    }
+
+    /* "header" | krb5-header | (for DCE, trailer) */
+    theader->buffer.value = stream->buffer.value;
+
+    /* plaintext-data (if present) */
+    if (tdata) {
+	uint8_t *datap = (uint8_t *)stream->buffer.value + theader->buffer.length;
+
+	tdata->buffer.length = stream->buffer.length - len;
+
+	if (data->type & GSS_IOV_BUFFER_FLAG_ALLOCATE) {
+	    major_status = _gk_allocate_buffer(minor_status, tdata, tdata->buffer.length);
+	    if (major_status != GSS_S_COMPLETE) {
+		free(tiov);
+		return major_status;
+	    }
+
+	    memcpy(tdata->buffer.value, datap, tdata->buffer.length);
+	} else
+	    tdata->buffer.value = datap;
+    }
+
+    ttrailer->buffer.value = (uint8_t *)stream->buffer.value + stream->buffer.length -
+			     ttrailer->buffer.length;
+
+    major_status = _gssapi_unwrap_cfx_iov(minor_status, ctx, context,
+					  conf_state, qop_state, tiov, i);
+    if (tdata) {
+	if (major_status == GSS_S_COMPLETE)
+	    *data = *tdata;
+	else if (tdata->type & GSS_IOV_BUFFER_FLAG_ALLOCATED)
+	    gss_release_buffer(&tmp, &tdata->buffer);
+    }
+
+    free(tiov);
+
+    return major_status;
+}
+
 OM_uint32
 _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 		       gsskrb5_ctx ctx,
@@ -714,6 +866,10 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
     uint8_t ivec[EVP_MAX_IV_LENGTH];
 
     *minor_status = 0;
+
+    if (_gk_find_buffer(iov, iov_count, GSS_IOV_BUFFER_TYPE_STREAM))
+	return unwrap_cfx_stream(minor_status, ctx, context, conf_state,
+				 qop_state, iov, iov_count);
 
     header = _gk_find_buffer(iov, iov_count, GSS_IOV_BUFFER_TYPE_HEADER);
     if (header == NULL) {
@@ -1250,106 +1406,19 @@ OM_uint32 _gssapi_unwrap_cfx(OM_uint32 *minor_status,
 			     gss_qop_t *qop_state)
 {
     OM_uint32 major_status;
-    gss_cfx_wrap_token token;
-    uint16_t ec, rrc, extra_rrc;
-    size_t len;
-    u_char *p;
-    gss_iov_buffer_desc iov[4];
+    gss_iov_buffer_desc iov[2];
 
-    *minor_status = 0;
+    iov[0].type = GSS_IOV_BUFFER_TYPE_STREAM;
+    iov[0].buffer = *input_message_buffer;
 
-    if (input_message_buffer->length < sizeof(*token)) {
-	return GSS_S_DEFECTIVE_TOKEN;
-    }
+    iov[1].type = GSS_IOV_BUFFER_TYPE_DATA | GSS_IOV_BUFFER_FLAG_ALLOCATE;
+    iov[1].buffer.value = NULL;
+    iov[1].buffer.length = 0;
 
-    p = input_message_buffer->value;
-
-    token = (gss_cfx_wrap_token)p;
-
-    if (token->TOK_ID[0] != 0x05 || token->TOK_ID[1] != 0x04) {
-	return GSS_S_DEFECTIVE_TOKEN;
-    }
-
-    if (token->Filler != 0xFF) {
-	return GSS_S_DEFECTIVE_TOKEN;
-    }
-
-    ec  = (token->EC[0]  << 8) | token->EC[1];
-    rrc = (token->RRC[0] << 8) | token->RRC[1];
-
-    p += sizeof(*token);
-    len = input_message_buffer->length;
-    len -= (p - (u_char *)input_message_buffer->value);
-
-    /* rotating by RRC+EC is for Windows bug workaround */
-    if ((token->Flags & CFXSealed) && IS_DCE_STYLE(ctx))
-	extra_rrc = ec;
-    else
-	extra_rrc = 0;
-
-    memset(iov, 0, sizeof(iov));
-    iov[0].type = GSS_IOV_BUFFER_TYPE_HEADER;
-    iov[1].type = GSS_IOV_BUFFER_TYPE_DATA;
-
-    if (!IS_DCE_STYLE(ctx)) {
-	/* XXX doing this in place is not a good idea */
-	*minor_status = rrc_rotate(p, len, rrc + extra_rrc, TRUE);
-	if (*minor_status != 0)
-	    return GSS_S_FAILURE;
-
-	token->RRC[0] = token->RRC[1] = 0; /* no longer rotated */
-	iov[2].type = GSS_IOV_BUFFER_TYPE_PADDING;
-	iov[3].type = GSS_IOV_BUFFER_TYPE_TRAILER;
-    }
-
-    major_status = _gssapi_wrap_iov_length_cfx(minor_status, ctx, context,
-					       !!(token->Flags & CFXSealed),
-					       GSS_C_QOP_DEFAULT, conf_state,
-					       iov, sizeof(iov)/sizeof(iov[0]));
-    if (major_status != GSS_S_COMPLETE)
-	return GSS_S_FAILURE;
-
-    heim_assert(iov[2].buffer.length == 0, "_gssapi_unwrap_cfx has padding");
-
-    if (input_message_buffer->length < iov[0].buffer.length +
-				       iov[3].buffer.length) {
-	*minor_status = KRB5_BAD_MSIZE;
-	return GSS_S_FAILURE;
-    }
-
-    /* "header" | krb5-header | (for DCE, trailer) */
-    iov[0].buffer.value = input_message_buffer->value;
-
-    /* plaintext-data */
-    iov[1].buffer.length = input_message_buffer->length -
-			   (iov[0].buffer.length + iov[3].buffer.length);
-
-    /* for non-DCE, ec-padding | AEAD ? "" : E"Header" | krb5-trailer */
-    iov[3].buffer.value = (uint8_t *)iov[0].buffer.value +
-			  iov[0].buffer.length + iov[1].buffer.length;
-
-    output_message_buffer->value = malloc(iov[1].buffer.length);
-    if (output_message_buffer->value == NULL) {
-	*minor_status = ENOMEM;
-	return GSS_S_FAILURE;
-    }
-    output_message_buffer->length = iov[1].buffer.length;
-    memcpy(output_message_buffer->value,
-	   ((uint8_t *)input_message_buffer->value) + iov[0].buffer.length,
-	   iov[1].buffer.length);
-    iov[1].buffer.value = output_message_buffer->value;
-
-    heim_assert(input_message_buffer->length == iov[0].buffer.length +
-		iov[1].buffer.length + iov[3].buffer.length,
-		"Incorrect length calculation in _gssapi_unwrap_cfx");
-
-    major_status = _gssapi_unwrap_cfx_iov(minor_status, ctx, context,
-					  conf_state, qop_state,
-					  iov, sizeof(iov)/sizeof(iov[0]));
-    if (major_status != GSS_S_COMPLETE) {
-	OM_uint32 tmp;
-	gss_release_buffer(&tmp, output_message_buffer);
-    }
+    major_status = unwrap_cfx_stream(minor_status, ctx, context,
+				     conf_state, qop_state, iov, 2);
+    if (major_status == GSS_S_COMPLETE)
+	*output_message_buffer = iov[1].buffer;
 
     return major_status;
 }
