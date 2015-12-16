@@ -89,7 +89,8 @@ _krb5_evp_cipher_aead(krb5_context context,
     for (i = 0; i < num_data; i++) {
 	outlen = data[i].data.length;
 
-	if (data[i].flags != KRB5_CRYPTO_TYPE_SIGN_ONLY)
+	if (data[i].flags != KRB5_CRYPTO_TYPE_SIGN_ONLY ||
+	    data[i].data.length == 0)
 	    continue;
 
 	if (EVP_CipherUpdate(c, NULL, &outlen,
@@ -101,7 +102,8 @@ _krb5_evp_cipher_aead(krb5_context context,
     for (i = 0; i < num_data; i++) {
 	outlen = data[i].data.length;
 
-	if (data[i].flags != KRB5_CRYPTO_TYPE_DATA)
+	if (data[i].flags != KRB5_CRYPTO_TYPE_DATA ||
+	    data[i].data.length == 0)
 	    continue;
 
 	if (EVP_CipherUpdate(c, data[i].data.data, &outlen,
