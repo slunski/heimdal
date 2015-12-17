@@ -248,7 +248,7 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 {
     OM_uint32 major_status, junk;
     gss_iov_buffer_desc *header, *trailer, *padding;
-    size_t gsshsize, k5hsize;
+    size_t gsshsize, k5hsize = 0;
     size_t gsstsize, k5tsize;
     size_t rrc = 0, ec = 0, etsize = 0;
     int i, j;
@@ -295,11 +295,13 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 
 	size += sizeof(gss_cfx_wrap_token_desc);
 
-	*minor_status = krb5_crypto_length(context, ctx->crypto,
-					   KRB5_CRYPTO_TYPE_HEADER,
-					   &k5hsize);
-	if (*minor_status)
-	    return GSS_S_FAILURE;
+	if ((ctx->more_flags & AEAD) == 0) {
+	    *minor_status = krb5_crypto_length(context, ctx->crypto,
+					       KRB5_CRYPTO_TYPE_HEADER,
+					       &k5hsize);
+	    if (*minor_status)
+		return GSS_S_FAILURE;
+	}
 
 	*minor_status = krb5_crypto_length(context, ctx->crypto,
 					   KRB5_CRYPTO_TYPE_TRAILER,
@@ -473,7 +475,8 @@ _gssapi_wrap_cfx_iov(OM_uint32 *minor_status,
 	 */
 
 	i = 0;
-	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
+	data[i].flags = (ctx->more_flags & AEAD) ? KRB5_CRYPTO_TYPE_EMPTY
+						 : KRB5_CRYPTO_TYPE_HEADER;
 	data[i].data.data = (uint8_t *)header->buffer.value + header->buffer.length - k5hsize;
 	data[i].data.length = k5hsize;
 	i++;
@@ -962,10 +965,12 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
     }
 
     if ((token_flags & CFXSealed) || (ctx->more_flags & AEAD)) {
-	size_t k5tsize, k5hsize;
+	size_t k5tsize, k5hsize = 0;
 	size_t etsize; /* size of encrypted token, unnecessary for AEAD modes */
 
-	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
+	if ((ctx->more_flags & AEAD) == 0)
+	    krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_HEADER, &k5hsize);
+
 	krb5_crypto_length(context, ctx->crypto, KRB5_CRYPTO_TYPE_TRAILER, &k5tsize);
 
 	etsize = (ctx->more_flags & AEAD) ? 0 : sizeof(*token);
@@ -1021,7 +1026,8 @@ _gssapi_unwrap_cfx_iov(OM_uint32 *minor_status,
 	}
 
 	i = 0;
-	data[i].flags = KRB5_CRYPTO_TYPE_HEADER;
+	data[i].flags = (ctx->more_flags & AEAD) ? KRB5_CRYPTO_TYPE_EMPTY
+						 : KRB5_CRYPTO_TYPE_HEADER;
 	data[i].data.data = (uint8_t *)header->buffer.value +
 			    header->buffer.length - k5hsize;
 	data[i].data.length = k5hsize;
@@ -1269,11 +1275,13 @@ _gssapi_wrap_iov_length_cfx(OM_uint32 *minor_status,
 
 	size += sizeof(gss_cfx_wrap_token_desc);
 
-	*minor_status = krb5_crypto_length(context, ctx->crypto,
-					   KRB5_CRYPTO_TYPE_HEADER,
-					   &k5hsize);
-	if (*minor_status)
-	    return GSS_S_FAILURE;
+	if ((ctx->more_flags & AEAD) == 0) {
+	    *minor_status = krb5_crypto_length(context, ctx->crypto,
+					       KRB5_CRYPTO_TYPE_HEADER,
+					       &k5hsize);
+	    if (*minor_status)
+		return GSS_S_FAILURE;
+	}
 
 	*minor_status = krb5_crypto_length(context, ctx->crypto,
 					   KRB5_CRYPTO_TYPE_TRAILER,
