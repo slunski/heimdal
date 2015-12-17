@@ -881,7 +881,7 @@ iov_test(krb5_context context, krb5_enctype enctype)
      * Encrypt
      */
     RESET_IVEC(ivecp);
-    ret = krb5_encrypt_iov_ivec(context, crypto, 7, iov,
+    ret = krb5_encrypt_iov_ivec(context, crypto, 22, iov,
 				sizeof(iov)/sizeof(iov[0]), ivecp);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_encrypt_iov_ivec");
@@ -890,7 +890,7 @@ iov_test(krb5_context context, krb5_enctype enctype)
      * Decrypt
      */
     RESET_IVEC(ivecp);
-    ret = krb5_decrypt_iov_ivec(context, crypto, 7,
+    ret = krb5_decrypt_iov_ivec(context, crypto, 22,
 				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_decrypt_iov_ivec");
@@ -948,7 +948,7 @@ iov_test(krb5_context context, krb5_enctype enctype)
      * Encrypt
      */
     RESET_IVEC(ivecp);
-    ret = krb5_encrypt_iov_ivec(context, crypto, 7,
+    ret = krb5_encrypt_iov_ivec(context, crypto, 22,
 				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_encrypt_iov_ivec");
@@ -957,7 +957,7 @@ iov_test(krb5_context context, krb5_enctype enctype)
      * Decrypt
      */
     RESET_IVEC(ivecp);
-    ret = krb5_decrypt_iov_ivec(context, crypto, 7,
+    ret = krb5_decrypt_iov_ivec(context, crypto, 22,
 				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_decrypt_iov_ivec");
