@@ -1476,13 +1476,27 @@ iov_ivec_aead(krb5_context context,
     krb5_error_code ret;
     struct _krb5_key_data *dkey;
 
-    if (derived_crypto(context, crypto)) {
-	ret = _get_derived_key(context, crypto, ENCRYPTION_USAGE(usage), &dkey);
-	if (ret)
-	    return ret;
-    } else {
-	dkey = &crypto->key;
+    /*
+     * Allow GSS-API CFX key usages as they have appropriately constructed
+     * initialization vectors.
+     *
+     * This is brittle but will stop AEAD being used with long-term keys.
+     * In the future, we may derive a key from a salt placed in the header
+     * for usages aside from GSS-API.
+     */
+    switch (usage) {
+    case KRB5_KU_USAGE_ACCEPTOR_SEAL:
+    case KRB5_KU_USAGE_ACCEPTOR_SIGN:
+    case KRB5_KU_USAGE_INITIATOR_SEAL:
+    case KRB5_KU_USAGE_INITIATOR_SIGN:
+	break;
+    default:
+	return KRB5_PROG_ETYPE_NOSUPP;
     }
+
+    ret = _get_derived_key(context, crypto, ENCRYPTION_USAGE(usage), &dkey);
+    if (ret)
+	return ret;
 
     ret = _key_schedule(context, dkey);
     if (ret)
