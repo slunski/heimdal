@@ -55,14 +55,13 @@ _krb5_evp_cipher_aead(krb5_context context,
     headersz = et->confoundersize;
     trailersz = et->blocksize;
 
-    /* header XXX */
+    /*
+     * In the future, if we support longterm keys, then the header will
+     * contain a key derivation salt.
+     */
     hiv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_HEADER);
-    if (hiv) {
-	if (hiv->data.length != headersz)
-	    return KRB5_BAD_MSIZE;
-	if (encryptp)
-	    memset(hiv->data.data, 0, hiv->data.length);
-    }
+    if (hiv && hiv->data.length != headersz)
+	return KRB5_BAD_MSIZE;
 
     /* padding */
     piv = iov_find(data, num_data, KRB5_CRYPTO_TYPE_PADDING);
