@@ -812,11 +812,7 @@ iov_test(krb5_context context, krb5_enctype enctype)
     krb5_crypto_iov iov[6];
     size_t len, i;
     unsigned char *base, *p;
-    unsigned char ivec[EVP_MAX_IV_LENGTH], *ivecp;
-
-#define RESET_IVEC(ivecp) do { if (ivecp) memset(ivecp, 0, EVP_MAX_IV_LENGTH); } while (0)
-
-    ivecp = _krb5_enctype_is_aead(context, enctype) ? ivec : NULL;
+    unsigned char ivec[EVP_MAX_IV_LENGTH];
 
     ret = krb5_generate_random_keyblock(context, enctype, &key);
     if (ret)
@@ -880,18 +876,18 @@ iov_test(krb5_context context, krb5_enctype enctype)
     /*
      * Encrypt
      */
-    RESET_IVEC(ivecp);
+    memset(ivec, 0, sizeof(ivec));
     ret = krb5_encrypt_iov_ivec(context, crypto, 22, iov,
-				sizeof(iov)/sizeof(iov[0]), ivecp);
+				sizeof(iov)/sizeof(iov[0]), ivec);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_encrypt_iov_ivec");
 
     /*
      * Decrypt
      */
-    RESET_IVEC(ivecp);
+    memset(ivec, 0, sizeof(ivec));
     ret = krb5_decrypt_iov_ivec(context, crypto, 22,
-				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
+				iov, sizeof(iov)/sizeof(iov[0]), ivec);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_decrypt_iov_ivec");
 
@@ -947,18 +943,18 @@ iov_test(krb5_context context, krb5_enctype enctype)
     /*
      * Encrypt
      */
-    RESET_IVEC(ivecp);
+    memset(ivec, 0, sizeof(ivec));
     ret = krb5_encrypt_iov_ivec(context, crypto, 22,
-				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
+				iov, sizeof(iov)/sizeof(iov[0]), ivec);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_encrypt_iov_ivec");
 
     /*
      * Decrypt
      */
-    RESET_IVEC(ivecp);
+    memset(ivec, 0, sizeof(ivec));
     ret = krb5_decrypt_iov_ivec(context, crypto, 22,
-				iov, sizeof(iov)/sizeof(iov[0]), ivecp);
+				iov, sizeof(iov)/sizeof(iov[0]), ivec);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_decrypt_iov_ivec");
 
