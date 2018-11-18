@@ -58,10 +58,11 @@ _krb5_aes_sha2_md_for_enctype(krb5_context context,
 
 static krb5_error_code
 SP_HMAC_SHA2_checksum(krb5_context context,
+                      krb5_crypto crypto,
 		      struct _krb5_key_data *key,
-		      const void *data,
-		      size_t len,
-		      unsigned usage,
+                      unsigned usage,
+                      const struct krb5_crypto_iov *iov,
+                      int niov,
 		      Checksum *result)
 {
     krb5_error_code ret;
@@ -73,8 +74,10 @@ SP_HMAC_SHA2_checksum(krb5_context context,
     if (ret)
 	return ret;
 
-    HMAC(md, key->key->keyvalue.data, key->key->keyvalue.length,
-	 data, len, hmac, &hmaclen);
+    ret = _krb5_evp_hmac_iov(context, crypto, key, iov, niov, hmac,
+                             &hmaclen, md, NULL);
+    if (ret)
+        return ret;
 
     heim_assert(result->checksum.length <= hmaclen, "SHA2 internal error");
 
@@ -173,6 +176,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha256_128 = {
     &_krb5_checksum_hmac_sha256_128_aes128,
     F_DERIVED | F_ENC_THEN_CKSUM | F_SP800_108_HMAC_KDF,
     _krb5_evp_encrypt_cts,
+    NULL,
     16,
     AES_SHA2_PRF
 };
@@ -189,6 +193,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_cts_hmac_sha384_192 = {
     &_krb5_checksum_hmac_sha384_192_aes256,
     F_DERIVED | F_ENC_THEN_CKSUM | F_SP800_108_HMAC_KDF,
     _krb5_evp_encrypt_cts,
+    NULL,
     16,
     AES_SHA2_PRF
 };

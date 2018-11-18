@@ -209,6 +209,8 @@ struct plugin2 {
     heim_dict_t names;
 };
 
+#ifdef HAVE_DLOPEN
+
 static void
 plug_dealloc(void *ptr)
 {
@@ -258,6 +260,7 @@ resolve_origin(const char *di)
 #endif /* !HAVE_DLADDR */
 }
 
+#endif /* HAVE_DLOPEN */
 
 /**
  * Load plugins (new system) for the given module @name (typically
@@ -535,7 +538,7 @@ _krb5_plugin_run_f(krb5_context context,
 		   krb5_error_code (KRB5_LIB_CALL *func)(krb5_context, const void *, void *, void *))
 {
     heim_string_t m = heim_string_create(module);
-    heim_dict_t dict;
+    heim_dict_t dict = NULL;
     void *plug_ctx;
     struct common_plugin_method *cpm;
     struct iter_ctx s;
@@ -558,7 +561,9 @@ _krb5_plugin_run_f(krb5_context context,
     s.ret = KRB5_PLUGIN_NO_HANDLE;
 
     /* Get loaded plugins */
-    dict = heim_dict_copy_value(modules, m);
+    if (modules)
+	dict = heim_dict_copy_value(modules, m);
+
     heim_release(m);
 
     /* Add loaded plugins to s.result array */
@@ -600,7 +605,8 @@ _krb5_plugin_run_f(krb5_context context,
 
     heim_release(s.result);
     heim_release(s.n);
-    heim_release(dict);
+    if (dict)
+	heim_release(dict);
 
     return s.ret;
 }

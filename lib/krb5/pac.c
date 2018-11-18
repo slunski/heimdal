@@ -88,6 +88,7 @@ HMAC_MD5_any_checksum(krb5_context context,
 		      Checksum *result)
 {
     struct _krb5_key_data local_key;
+    struct krb5_crypto_iov iov;
     krb5_error_code ret;
 
     memset(&local_key, 0, sizeof(local_key));
@@ -103,7 +104,12 @@ HMAC_MD5_any_checksum(krb5_context context,
     }
 
     result->cksumtype = CKSUMTYPE_HMAC_MD5;
-    ret = _krb5_HMAC_MD5_checksum(context, &local_key, data, len, usage, result);
+    iov.data.data = (void *)data;
+    iov.data.length = len;
+    iov.flags = KRB5_CRYPTO_TYPE_DATA;
+
+    ret = _krb5_HMAC_MD5_checksum(context, NULL, &local_key, usage, &iov, 1,
+                                  result);
     if (ret)
 	krb5_data_free(&result->checksum);
 
@@ -179,7 +185,7 @@ krb5_pac_parse(krb5_context context, const void *ptr, size_t len,
 	if (p->pac->buffers[i].offset_lo & (PAC_ALIGNMENT - 1)) {
 	    ret = EINVAL;
 	    krb5_set_error_message(context, ret,
-				   N_("PAC out of allignment", ""));
+				   N_("PAC out of alignment", ""));
 	    goto out;
 	}
 	if (p->pac->buffers[i].offset_hi) {

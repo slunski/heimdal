@@ -72,7 +72,7 @@ struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes128 = {
     12,
     F_KEYED | F_CPROOF | F_DERIVED,
     _krb5_SP_HMAC_SHA1_checksum,
-    NULL
+    _krb5_SP_HMAC_SHA1_verify
 };
 
 struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes256 = {
@@ -82,7 +82,7 @@ struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes256 = {
     12,
     F_KEYED | F_CPROOF | F_DERIVED,
     _krb5_SP_HMAC_SHA1_checksum,
-    NULL
+    _krb5_SP_HMAC_SHA1_verify
 };
 
 static krb5_error_code
@@ -92,6 +92,7 @@ AES_SHA1_PRF(krb5_context context,
 	     krb5_data *out)
 {
     struct _krb5_checksum_type *ct = crypto->et->checksum;
+    struct krb5_crypto_iov iov[1];
     krb5_error_code ret;
     Checksum result;
     krb5_keyblock *derived;
@@ -103,7 +104,9 @@ AES_SHA1_PRF(krb5_context context,
 	return ret;
     }
 
-    ret = (*ct->checksum)(context, NULL, in->data, in->length, 0, &result);
+    iov[0].data = *in;
+    iov[0].flags = KRB5_CRYPTO_TYPE_DATA;
+    ret = (*ct->checksum)(context, crypto, NULL, 0, iov, 1, &result);
     if (ret) {
 	krb5_data_free(&result.checksum);
 	return ret;
@@ -151,6 +154,7 @@ struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha1 = {
     &_krb5_checksum_hmac_sha1_aes128,
     F_DERIVED | F_RFC3961_ENC | F_RFC3961_KDF,
     _krb5_evp_encrypt_cts,
+    _krb5_evp_encrypt_iov_cts,
     16,
     AES_SHA1_PRF
 };
@@ -167,6 +171,7 @@ struct _krb5_encryption_type _krb5_enctype_aes256_cts_hmac_sha1 = {
     &_krb5_checksum_hmac_sha1_aes256,
     F_DERIVED | F_RFC3961_ENC | F_RFC3961_KDF,
     _krb5_evp_encrypt_cts,
+    _krb5_evp_encrypt_iov_cts,
     16,
     AES_SHA1_PRF
 };

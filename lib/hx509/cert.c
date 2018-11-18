@@ -854,7 +854,7 @@ check_key_usage(hx509_context context, const Certificate *cert,
 
 /*
  * Return 0 on matching key usage 'flags' for 'cert', otherwise return
- * an error code. If 'req_present' the existance is required of the
+ * an error code. If 'req_present' the existence is required of the
  * KeyUsage extension.
  */
 
@@ -2120,7 +2120,7 @@ hx509_verify_path(hx509_context context,
 		if (find_extension(c, &asn1_oid_id_x509_ce_subjectAltName, &j)) {
 		    ret = HX509_PROXY_CERT_INVALID;
 		    hx509_set_error_string(context, 0, ret,
-					   "Proxy certificate have explicity "
+					   "Proxy certificate have explicitly "
 					   "forbidden subjectAltName");
 		    goto out;
 		}
@@ -2129,7 +2129,7 @@ hx509_verify_path(hx509_context context,
 		if (find_extension(c, &asn1_oid_id_x509_ce_issuerAltName, &j)) {
 		    ret = HX509_PROXY_CERT_INVALID;
 		    hx509_set_error_string(context, 0, ret,
-					   "Proxy certificate have explicity "
+					   "Proxy certificate have explicitly "
 					   "forbidden issuerAltName");
 		    goto out;
 		}
